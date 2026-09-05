@@ -1,0 +1,19 @@
+{
+  "appId": "cc.yucon.vault",
+  "appName": "Yucon 钥仓",
+  "webDir": "dist/build/h5",
+  "android": {
+    "allowMixedContent": true,
+    "webContentsDebuggingEnabled": true,
+    "adjustMarginsForEdgeToEdge": "disable"
+  },
+  "server": {
+    "androidScheme": "https",
+    "cleartext": true
+  },
+  "plugins": {
+    "CapacitorHttp": {
+      "enabled": true
+    }
+  }
+}

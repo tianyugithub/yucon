@@ -1,0 +1,38 @@
+{
+  "name": "yucon-vault-prototype",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Yucon 钥仓的 uni-app UI 原型",
+  "scripts": {
+    "dev:h5": "uni",
+    "build:h5": "uni build",
+    "dev:app": "uni -p app",
+    "build:app": "uni build -p app",
+    "build:android": "YUCON_NATIVE=1 uni build && npx cap sync android",
+    "android:install": "bash scripts/pack-flutter-android.sh",
+    "android:install:h5": "bash scripts/pack-android.sh",
+    "typecheck": "vue-tsc --noEmit"
+  },
+  "dependencies": {
+    "@capacitor/android": "^7.6.9",
+    "@capacitor/core": "^7.6.9",
+    "@dcloudio/uni-app": "3.0.0-alpha-5020520260829001",
+    "@dcloudio/uni-app-plus": "3.0.0-alpha-5020520260829001",
+    "@dcloudio/uni-h5": "3.0.0-alpha-5020520260829001",
+    "nutui-uniapp": "1.11.2",
+    "pinia": "2.0.36",
+    "vue": "3.4.21"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^7.6.9",
+    "@dcloudio/types": "3.4.31",
+    "@dcloudio/vite-plugin-uni": "3.0.0-alpha-5020520260829001",
+    "@uni-helper/uni-app-types": "1.1.0",
+    "@uni-helper/vite-plugin-uni-components": "0.3.2",
+    "@vue/tsconfig": "0.5.1",
+    "sass": "1.104.0",
+    "typescript": "5.6.3",
+    "vite": "5.2.8",
+    "vue-tsc": "2.0.29"
+  }
+}

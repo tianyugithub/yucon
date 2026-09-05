@@ -1,0 +1,226 @@
+@import 'nutui-uniapp/styles/mixins/index';
+@import 'nutui-uniapp/styles/index';
+
+:root {
+  --yc-primary: #fa2c19;
+  --yc-primary-deep: #d91d0d;
+  --yc-ink: #1a1a1a;
+  --yc-page: #f5f5f5;
+  --yc-surface: #ffffff;
+  --yc-muted: #7d8490;
+  --yc-line: #eceef2;
+  --yc-success: #21a366;
+  --yc-warning: #ed8a19;
+  --yc-danger: #e5484d;
+}
+
+page {
+  min-height: 100%;
+  overflow-x: hidden;
+  overscroll-behavior: none;
+  background: var(--yc-page);
+  color: var(--yc-ink);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 28rpx;
+  line-height: 1.45;
+}
+
+view,
+text,
+button,
+input,
+textarea {
+  box-sizing: border-box;
+}
+
+button,
+uni-button {
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  line-height: inherit;
+
+  &::after {
+    border: 0;
+  }
+}
+
+.yc-page uni-button:not(.nut-button) {
+  min-width: 0;
+
+  &::after {
+    border: 0;
+  }
+}
+
+.yc-page {
+  min-height: 100%;
+  min-height: 100dvh;
+  overscroll-behavior: none;
+  background: var(--yc-page);
+}
+
+input,
+textarea,
+.nut-input,
+.nut-textarea {
+  scroll-margin-top: 132px;
+  scroll-margin-bottom: 24px;
+}
+
+.yc-page--dark {
+  --yc-page: #111214;
+  --yc-surface: #1b1d20;
+  --yc-ink: #f4f5f6;
+  --yc-muted: #a3a8b1;
+  --yc-line: #31353a;
+
+  .yc-card {
+    border-color: rgba(255, 255, 255, 0.06);
+    box-shadow: 0 12rpx 30rpx rgba(0, 0, 0, 0.22);
+  }
+
+  .nut-input,
+  .nut-searchbar__input,
+  .nut-textarea {
+    border-color: #383c42 !important;
+    background: #25282d !important;
+    color: var(--yc-ink) !important;
+  }
+
+  .api-key-card__secret,
+  .key-form__created-value,
+  .profile__form-row {
+    border-color: #383c42 !important;
+    background: #25282d !important;
+    color: var(--yc-ink) !important;
+  }
+
+  .account-form__tip,
+  .key-form__tip {
+    background: rgba(250, 44, 25, 0.16);
+    color: #ffaca3;
+  }
+}
+
+.yc-content {
+  padding: 0 30rpx calc(72px + env(safe-area-inset-bottom));
+}
+
+.yc-card {
+  overflow: hidden;
+  border: 1rpx solid rgba(22, 25, 31, 0.04);
+  border-radius: $yc-radius-lg;
+  background: var(--yc-surface);
+  box-shadow: $yc-shadow;
+}
+
+.yc-card .nut-cell-group {
+  margin: 0;
+  background: transparent;
+}
+
+.yc-card .nut-cell-group .nut-cell-group__wrap {
+  margin: 0;
+  background: transparent;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.yc-section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 44rpx 2rpx 20rpx;
+  color: var(--yc-ink);
+  font-size: 32rpx;
+  font-weight: 700;
+}
+
+.yc-section-action {
+  display: inline-flex;
+  align-items: center;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--yc-primary);
+  font-size: 24rpx;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.yc-empty {
+  padding: 80rpx 32rpx;
+  color: var(--yc-muted);
+  text-align: center;
+  font-size: 26rpx;
+}
+
+/* #ifdef H5 */
+html,
+body {
+  width: 100%;
+  height: auto !important;
+  min-height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: none;
+}
+
+#app,
+uni-app,
+uni-page,
+uni-page-wrapper,
+uni-page-body {
+  height: auto !important;
+  min-height: 100%;
+  overflow: visible;
+}
+
+@media screen and (min-width: 768px) {
+  body,
+  uni-page-body {
+    background: #e9edf1;
+  }
+
+  .yc-page {
+    width: 750rpx;
+    min-height: 100%;
+    margin: 0 auto;
+    border-right: 1rpx solid rgba(17, 24, 39, 0.07);
+    border-left: 1rpx solid rgba(17, 24, 39, 0.07);
+    box-shadow: 0 0 80rpx rgba(23, 31, 42, 0.12);
+  }
+
+  .nut-popup.nut-popup--bottom {
+    width: min(750rpx, 100vw) !important;
+    left: 50% !important;
+    margin-left: max(-375rpx, -50vw);
+  }
+}
+/* #endif */
+
+.yc-select-popup.nut-popup {
+  overflow: hidden !important;
+  overscroll-behavior: none;
+}
+
+.yc-select-overlay {
+  overscroll-behavior: none;
+}
+
+html.yc-scroll-lock,
+body.yc-scroll-lock,
+uni-page.yc-scroll-lock,
+uni-page-wrapper.yc-scroll-lock,
+uni-page-body.yc-scroll-lock {
+  overflow: hidden !important;
+  overscroll-behavior: none;
+}

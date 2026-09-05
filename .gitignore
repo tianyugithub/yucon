@@ -1,0 +1,54 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+unpackage/
+**/build/
+**/.dart_tool/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+**/coverage/
+**/.gradle/
+
+# Local / machine-specific
+.DS_Store
+*.log
+*.iml
+.idea/
+.vscode/
+android/local.properties
+app/android/local.properties
+**/local.properties
+key.properties
+**/*.keystore
+**/*.jks
+**/*.p12
+**/*.mobileprovision
+
+# Packages and binaries
+*.apk
+*.ap_
+*.aab
+*.ipa
+*.app/
+
+# User data — never publish backups or vault exports
+**/yucon-backups/
+*钥仓备份*.json
+*.env
+.env.*
+
+# iOS generated
+app/ios/Pods/
+app/ios/.symlinks/
+app/ios/Flutter/ephemeral/
+app/ios/Flutter/Generated.xcconfig
+app/ios/Flutter/flutter_export_environment.sh
+app/ios/ServiceDefinitions.json
+**/xcuserdata/
+**/DerivedData/
+
+# Flutter / Android extras
+app/android/.cxx/
+**/captures/

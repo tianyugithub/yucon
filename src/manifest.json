@@ -1,0 +1,36 @@
+{
+  "name": "Yucon 钥仓",
+  "appid": "__UNI__YUCONVAULT",
+  "description": "A secure vault for all API keys",
+  "versionName": "0.1.0",
+  "versionCode": "100",
+  "transformPx": false,
+  "app-plus": {
+    "usingComponents": true,
+    "nvueStyleCompiler": "uni-app",
+    "compilerVersion": 3,
+    "splashscreen": {
+      "alwaysShowBeforeRender": true,
+      "waiting": true,
+      "autoclose": true,
+      "delay": 0
+    },
+    "distribute": {
+      "android": {
+        "minSdkVersion": 26,
+        "permissions": [
+          "<uses-permission android:name=\"android.permission.INTERNET\"/>"
+        ]
+      },
+      "ios": {
+        "deploymentTarget": "13.0"
+      }
+    }
+  },
+  "h5": {
+    "title": "Yucon 钥仓",
+    "router": {
+      "mode": "hash"
+    }
+  }
+}

@@ -1,0 +1,6 @@
+# Copy to key.properties in this folder, then fill in real values.
+# storeFile is relative to android/app/ (the Gradle module directory).
+storePassword=your-store-password
+keyPassword=your-key-password
+keyAlias=upload
+storeFile=../upload-keystore.jks
