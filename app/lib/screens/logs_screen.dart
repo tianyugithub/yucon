@@ -8,7 +8,9 @@ import 'package:vault/app/models/domain.dart';
 import 'package:vault/app/modules/vault_store.dart';
 import 'package:vault/app/utils/format.dart';
 import 'package:vault/app/utils/quota.dart';
+import 'package:vault/app/utils/usage_log_content.dart';
 import 'package:vault/screens/theme_define.dart';
+import 'package:vault/screens/usage_log_detail_screen.dart';
 import 'package:vault/screens/widgets/model_brand_icon.dart';
 import 'package:vault/screens/widgets/ui.dart';
 
@@ -500,6 +502,16 @@ class _LogsScreenState extends State<LogsScreen> {
                         _UsageLogCard(
                           log: log,
                           showIp: store.settings.recordIpLog,
+                          onOpen: () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => UsageLogDetailScreen(
+                                  log: log,
+                                  showIp: store.settings.recordIpLog,
+                                ),
+                              ),
+                            );
+                          },
                         ),
                   ],
                 ] else ...[
@@ -921,34 +933,15 @@ class _FilterButton extends StatelessWidget {
 }
 
 class _UsageLogCard extends StatelessWidget {
-  const _UsageLogCard({required this.log, required this.showIp});
+  const _UsageLogCard({required this.log, required this.showIp, required this.onOpen});
 
   final UsageLog log;
   final bool showIp;
+  final VoidCallback onOpen;
 
-  bool get _isTopup => log.type == 1 || log.type == 6;
+  bool get _isTopup => isUsageTopup(log.type);
   bool get _isError => log.type == 5;
-
-  String get _title {
-    if (_isTopup) {
-      return log.type == 6 ? '额度退还' : '额度充值';
-    }
-    if (_isError) {
-      final model = log.model.trim();
-      if (model.isNotEmpty && model != '未知模型') {
-        return model;
-      }
-      return '调用错误';
-    }
-    final model = log.model.trim();
-    return model.isEmpty || model == '未知模型' ? '调用记录' : model;
-  }
-
-  bool get _showTokens =>
-      !_isTopup &&
-      (log.type == 2 ||
-          log.promptTokens > 0 ||
-          log.completionTokens > 0);
+  bool get _showTokens => usageLogShowsTokens(log);
 
   @override
   Widget build(BuildContext context) {
@@ -966,6 +959,7 @@ class _UsageLogCard extends StatelessWidget {
         : (_isError ? const Color(0xFFC54638) : ThemeDefine.kColorPrimary);
     final amount = formatUsageQuota(log.quotaCost, log.type);
     return YuconCard(
+      onTap: onOpen,
       padding: const EdgeInsets.all(12),
       borderColor: _isError ? const Color(0x33FA2C19) : null,
       child: Row(
@@ -1014,7 +1008,7 @@ class _UsageLogCard extends StatelessWidget {
                   children: [
                     Expanded(
                       child: Text(
-                        _title,
+                        usageLogTitle(log),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
@@ -1046,6 +1040,10 @@ class _UsageLogCard extends StatelessWidget {
                         ),
                       ],
                     ),
+                    const Padding(
+                      padding: EdgeInsets.only(left: 2, top: 1),
+                      child: Icon(Icons.chevron_right, color: ThemeDefine.kColorText, size: 18),
+                    ),
                   ],
                 ),
                 if (_isTopup) ...[
@@ -1065,8 +1063,8 @@ class _UsageLogCard extends StatelessWidget {
                 if (_showTokens) ...[
                   const SizedBox(height: 3),
                   Text(
-                    '${log.apiKeyName} · 输入 ${formatGroupedInt(log.promptTokens)} / 输出 ${formatGroupedInt(log.completionTokens)}',
-                    maxLines: 1,
+                    formatUsageTokenLine(log),
+                    maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                       color: ThemeDefine.kColorText,
@@ -1077,7 +1075,7 @@ class _UsageLogCard extends StatelessWidget {
                 if (_isError && log.content.trim().isNotEmpty) ...[
                   const SizedBox(height: 3),
                   Text(
-                    log.content.trim(),
+                    parseUsageLogContent(log.content).preview,
                     maxLines: 3,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(

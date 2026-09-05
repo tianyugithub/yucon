@@ -112,6 +112,11 @@ class NewApiUsageLog {
     this.content,
     this.useTime,
     this.isStream,
+    this.requestId,
+    this.upstreamRequestId,
+    this.channelName,
+    this.username,
+    this.other = const {},
   });
 
   final int? id;
@@ -129,6 +134,11 @@ class NewApiUsageLog {
   final String? content;
   final num? useTime;
   final bool? isStream;
+  final String? requestId;
+  final String? upstreamRequestId;
+  final String? channelName;
+  final String? username;
+  final Map<String, dynamic> other;
 
   factory NewApiUsageLog.fromJson(Map<String, dynamic> json) {
     final created = json['created_at'];
@@ -148,6 +158,11 @@ class NewApiUsageLog {
       content: json['content']?.toString(),
       useTime: json['use_time'] as num? ?? num.tryParse(json['use_time']?.toString() ?? ''),
       isStream: json['is_stream'] == true || json['is_stream'] == 1,
+      requestId: json['request_id']?.toString(),
+      upstreamRequestId: json['upstream_request_id']?.toString(),
+      channelName: json['channel_name']?.toString(),
+      username: json['username']?.toString(),
+      other: parseUsageLogOther(json['other']),
     );
   }
 }

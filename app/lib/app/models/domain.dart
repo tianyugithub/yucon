@@ -280,6 +280,7 @@ class Account {
     this.topupRatio = 1,
     List<String>? apiUrls,
     NetworkProxy? proxy,
+    this.excludeFromTotalQuota = false,
   }) : apiUrls = apiUrls ?? [],
        proxy = proxy ?? NetworkProxy();
 
@@ -311,6 +312,7 @@ class Account {
   double topupRatio;
   List<String> apiUrls;
   NetworkProxy proxy;
+  bool excludeFromTotalQuota;
 
   bool get needsRelogin => status == AccountStatus.expired;
 
@@ -348,6 +350,7 @@ class Account {
     'topupRatio': topupRatio,
     'apiUrls': apiUrls,
     'proxy': proxy.toJson(),
+    'excludeFromTotalQuota': excludeFromTotalQuota,
   };
 
   factory Account.fromJson(Map<String, dynamic> json) => Account(
@@ -389,6 +392,7 @@ class Account {
         .where((item) => item.isNotEmpty)
         .toList(),
     proxy: NetworkProxy.fromJson(json['proxy']),
+    excludeFromTotalQuota: json['excludeFromTotalQuota'] == true,
   );
 }
 
@@ -575,7 +579,12 @@ class UsageLog {
     this.useTime = 0,
     this.isStream = false,
     this.type = 2,
-  });
+    this.requestId = '',
+    this.upstreamRequestId = '',
+    this.channelName = '',
+    this.username = '',
+    Map<String, dynamic>? other,
+  }) : other = other ?? {};
 
   String id;
   String accountId;
@@ -594,6 +603,11 @@ class UsageLog {
   num useTime;
   bool isStream;
   int type;
+  String requestId;
+  String upstreamRequestId;
+  String channelName;
+  String username;
+  Map<String, dynamic> other;
 
   Map<String, dynamic> toJson() => {
     'id': id,
@@ -613,6 +627,11 @@ class UsageLog {
     'useTime': useTime,
     'isStream': isStream,
     'type': type,
+    'requestId': requestId,
+    'upstreamRequestId': upstreamRequestId,
+    'channelName': channelName,
+    'username': username,
+    if (other.isNotEmpty) 'other': other,
   };
 
   factory UsageLog.fromJson(Map<String, dynamic> json) => UsageLog(
@@ -633,7 +652,19 @@ class UsageLog {
     useTime: json['useTime'] as num? ?? 0,
     isStream: json['isStream'] == true,
     type: (json['type'] as num?)?.toInt() ?? 2,
+    requestId: json['requestId']?.toString() ?? '',
+    upstreamRequestId: json['upstreamRequestId']?.toString() ?? '',
+    channelName: json['channelName']?.toString() ?? '',
+    username: json['username']?.toString() ?? '',
+    other: _usageLogOtherFromJson(json['other']),
   );
+}
+
+Map<String, dynamic> _usageLogOtherFromJson(Object? value) {
+  if (value is Map) {
+    return Map<String, dynamic>.from(value);
+  }
+  return {};
 }
 
 enum UsageTimeRange { today, days7, days30, all }
@@ -807,6 +838,7 @@ class AccountDraft {
     this.topupRatio = 1,
     List<String>? apiUrls,
     NetworkProxy? proxy,
+    this.excludeFromTotalQuota = false,
   }) : tags = tags ?? [],
        apiUrls = apiUrls ?? [],
        proxy = proxy ?? NetworkProxy(mode: NetworkProxyMode.followGlobal);
@@ -828,6 +860,7 @@ class AccountDraft {
   double topupRatio;
   List<String> apiUrls;
   NetworkProxy proxy;
+  bool excludeFromTotalQuota;
 }
 
 class ApiKeyDraft {

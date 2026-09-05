@@ -77,6 +77,14 @@ class AccountCard extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(color: ThemeDefine.kColorText, fontSize: 12),
                     ),
+                    if (account.excludeFromTotalQuota) ...[
+                      const SizedBox(height: 5),
+                      const StatusChip(
+                        label: '不计入合计',
+                        color: ThemeDefine.kColorText,
+                        background: ThemeDefine.kColorPage,
+                      ),
+                    ],
                   ],
                 ),
               ),

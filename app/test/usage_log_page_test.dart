@@ -4,6 +4,7 @@ import 'package:vault/app/api/newapi.dart';
 import 'package:vault/app/models/domain.dart';
 import 'package:vault/app/utils/format.dart';
 import 'package:vault/app/utils/quota.dart';
+import 'package:vault/app/utils/usage_log_content.dart';
 
 void main() {
   test('parses NewAPI log page with totals', () {
@@ -136,5 +137,92 @@ void main() {
     expect(log.type, 2);
     expect(log.ip, isEmpty);
     expect(log.quotaCost, 0.12);
+  });
+
+  test('token line includes the tokens unit and cache reads', () {
+    final log = UsageLog(
+      id: 'a',
+      accountId: 'b',
+      platformType: PlatformType.newapi,
+      apiKeyId: '',
+      apiKeyName: 'token',
+      model: 'gpt-4o',
+      time: '2026-09-05T06:12:33.000Z',
+      quotaCost: 0.12,
+      promptTokens: 1200,
+      completionTokens: 34,
+      success: true,
+      other: const {'cache_tokens': 88, 'cache_creation_tokens': 12},
+    );
+    expect(formatTokenCount(1200), '1,200 tokens');
+    expect(
+      formatUsageTokenLine(log),
+      '输入 1,200 tokens · 输出 34 tokens · 缓存 88 tokens',
+    );
+    expect(log.totalTokens, 1234);
+    expect(log.cacheReadTokens, 88);
+    expect(log.cacheWriteTokens, 12);
+    expect(usageLogShowsTokens(log), isTrue);
+  });
+
+  test('parses NewAPI other json for cache tokens and request id', () {
+    final parsed = NewApiUsageLog.fromJson({
+      'id': 9,
+      'type': 2,
+      'token_name': 'api_token',
+      'model_name': 'gpt-4o-mini',
+      'quota': 500000,
+      'prompt_tokens': 12,
+      'completion_tokens': 34,
+      'created_at': 1757055153,
+      'request_id': 'req-1',
+      'channel_name': 'OpenAI',
+      'other': '{"cache_tokens": 8, "cache_creation_tokens_5m": 2, "cache_creation_tokens_1h": 3}',
+    });
+    expect(parsed.requestId, 'req-1');
+    expect(parsed.channelName, 'OpenAI');
+    expect(parsed.other['cache_tokens'], 8);
+    expect(usageLogCacheReadTokens(parsed.other), 8);
+    expect(usageLogCacheWriteTokens(parsed.other), 5);
+  });
+
+  test('parses NewAPI error content into a readable message', () {
+    const raw =
+        'status_code=400, {"error":{"message":"The \'gpt-5.4\' model is not supported when using Codex with a ChatGPT account.","type":"invalid_request_error"}} (traceid: 5367dabc)';
+    final parsed = parseUsageLogContent(raw);
+    expect(parsed.statusCode, 400);
+    expect(parsed.type, 'invalid_request_error');
+    expect(parsed.traceId, '5367dabc');
+    expect(
+      parsed.preview,
+      "The 'gpt-5.4' model is not supported when using Codex with a ChatGPT account.",
+    );
+    expect(parsed.fields.map((item) => item.label).toList(), [
+      '状态码',
+      '错误类型',
+      '说明',
+      'Trace ID',
+    ]);
+  });
+
+  test('flattens other json into labeled rows', () {
+    final fields = usageLogOtherFields({
+      'cache_tokens': 63,
+      'frt': 210,
+      'upstream_model_name': 'claude-haiku-4-5',
+      'is_model_mapped': true,
+      'model_ratio': 1.25,
+      'admin_info': {
+        'use_channel': ['12'],
+        'local_count_tokens': false,
+      },
+    });
+    expect(fields.map((item) => '${item.label}=${item.value}').toList(), [
+      '首字耗时=210ms',
+      '上游模型=claude-haiku-4-5',
+      '模型已映射=是',
+      '模型倍率=1.25',
+      '实际渠道=12',
+    ]);
   });
 }

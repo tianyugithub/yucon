@@ -142,6 +142,7 @@ class DashboardScreen extends StatelessWidget {
           loading: store.isRefreshing,
           onRefresh: refresh,
           onCheckin: checkin,
+          excludedCount: store.excludedFromTotalCount,
         ),
         YuconCard(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),

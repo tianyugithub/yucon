@@ -1,7 +1,7 @@
 name: vault
 description: Yucon 钥仓
 publish_to: "none"
-version: 0.1.1+2
+version: 0.1.2+3
 
 environment:
   sdk: ^3.13.2

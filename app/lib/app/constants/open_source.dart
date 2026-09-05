@@ -1,5 +1,5 @@
 const kAppDisplayName = 'Yucon 钥仓';
-const kAppVersion = '0.1.1';
+const kAppVersion = '0.1.2';
 const kAppSourceUrl = 'https://github.com/tianyugithub/yucon';
 
 class OpenSourceProject {

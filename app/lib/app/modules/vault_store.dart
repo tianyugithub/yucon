@@ -201,21 +201,36 @@ class VaultStore extends ChangeNotifier {
   }
 
   double get totalQuota => roundMoney(
-    accounts.fold<double>(0, (sum, account) => sum + account.quota),
+    accounts
+        .where((account) => !account.excludeFromTotalQuota)
+        .fold<double>(0, (sum, account) => sum + account.quota),
   );
 
   double get totalUsedQuota => roundMoney(
-    accounts.fold<double>(0, (sum, account) => sum + account.usedQuota),
+    accounts
+        .where((account) => !account.excludeFromTotalQuota)
+        .fold<double>(0, (sum, account) => sum + account.usedQuota),
   );
+
+  int get excludedFromTotalCount =>
+      accounts.where((account) => account.excludeFromTotalQuota).length;
 
   int get totalRequestCount =>
       accounts.fold<int>(0, (sum, account) => sum + account.requestCount);
 
   double get todayUsage {
     final today = localDateKey(isoNow());
+    final excluded = accounts
+        .where((account) => account.excludeFromTotalQuota)
+        .map((account) => account.id)
+        .toSet();
     return roundMoney(
       usageLogs
-          .where((log) => localDateKey(log.time) == today)
+          .where(
+            (log) =>
+                localDateKey(log.time) == today &&
+                !excluded.contains(log.accountId),
+          )
           .fold<double>(0, (sum, log) => sum + log.quotaCost),
     );
   }
@@ -893,6 +908,11 @@ class VaultStore extends ChangeNotifier {
       useTime: log.useTime ?? 0,
       isStream: log.isStream == true,
       type: type,
+      requestId: log.requestId ?? '',
+      upstreamRequestId: log.upstreamRequestId ?? '',
+      channelName: log.channelName ?? '',
+      username: log.username ?? '',
+      other: Map<String, dynamic>.from(log.other),
     );
   }
 
@@ -1799,6 +1819,7 @@ class VaultStore extends ChangeNotifier {
       topupRatio: account.topupRatio,
       apiUrls: [...account.apiUrls],
       proxy: account.proxy.copy(),
+      excludeFromTotalQuota: account.excludeFromTotalQuota,
     );
   }
 
@@ -1926,6 +1947,7 @@ class VaultStore extends ChangeNotifier {
       existing.proxy = draft.proxy.copy();
       existing.topupRatio = sanitizeTopupRatio(draft.topupRatio);
       existing.apiUrls = [...draft.apiUrls];
+      existing.excludeFromTotalQuota = draft.excludeFromTotalQuota;
       existing.quotaPerUnit = ready.quotaPerUnit;
       existing.checkinEnabled = ready.checkinEnabled;
       existing.updatedAt = now;
@@ -1990,6 +2012,7 @@ class VaultStore extends ChangeNotifier {
       proxy: draft.proxy.copy(),
       topupRatio: sanitizeTopupRatio(draft.topupRatio),
       apiUrls: [...draft.apiUrls],
+      excludeFromTotalQuota: draft.excludeFromTotalQuota,
       trend: [],
       lastSyncedAt: now,
       createdAt: now,
@@ -2386,6 +2409,7 @@ class VaultStore extends ChangeNotifier {
     required String baseUrl,
     required String model,
     bool allowExpensive = false,
+    ModelProbeKind? protocol,
   }) {
     final account = accountById(accountId);
     return runWithProxy(
@@ -2395,6 +2419,7 @@ class VaultStore extends ChangeNotifier {
         apiKey: secret,
         model: model,
         allowExpensive: allowExpensive,
+        protocol: protocol,
       ),
     );
   }

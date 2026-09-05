@@ -87,6 +87,9 @@ class ProfileScreen extends StatelessWidget {
           children: [
             GroupTile(
               title: '全部可用额度',
+              subtitle: store.excludedFromTotalCount > 0
+                  ? '已排除 ${store.excludedFromTotalCount} 个账号'
+                  : null,
               value: formatCurrency(store.totalQuota),
               leading: _cellIcon('￥', const Color(0xFFFA2C19)),
             ),

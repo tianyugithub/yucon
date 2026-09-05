@@ -1,5 +1,6 @@
 import 'package:vault/app/api/http.dart';
 import 'package:vault/app/models/domain.dart';
+import 'package:vault/app/utils/quota.dart';
 
 String formatCompactCount(num count) {
   final value = count.floor().clamp(0, 1 << 30);
@@ -113,6 +114,85 @@ String formatUsageQuota(double amount, int type) {
     return text;
   }
   return '-$text';
+}
+
+bool isUsageTopup(int type) => type == 1 || type == 6;
+
+String formatTokenCount(num value) => '${formatGroupedInt(value)} tokens';
+
+String formatUsageTokenLine(UsageLog log) {
+  final parts = <String>[
+    '输入 ${formatTokenCount(log.promptTokens)}',
+    '输出 ${formatTokenCount(log.completionTokens)}',
+  ];
+  if (log.cacheReadTokens > 0) {
+    parts.add('缓存 ${formatTokenCount(log.cacheReadTokens)}');
+  }
+  return parts.join(' · ');
+}
+
+bool usageLogShowsTokens(UsageLog log) {
+  if (isUsageTopup(log.type)) {
+    return false;
+  }
+  return log.type == 2 ||
+      log.type == 5 ||
+      log.promptTokens > 0 ||
+      log.completionTokens > 0 ||
+      log.cacheReadTokens > 0;
+}
+
+String usageLogTitle(UsageLog log) {
+  if (log.type == 6) {
+    return '额度退还';
+  }
+  if (log.type == 1) {
+    return '额度充值';
+  }
+  if (log.type == 5) {
+    final model = log.model.trim();
+    if (model.isNotEmpty && model != '未知模型') {
+      return model;
+    }
+    return '调用错误';
+  }
+  final model = log.model.trim();
+  return model.isEmpty || model == '未知模型' ? '调用记录' : model;
+}
+
+String formatUsageLogDump(
+  UsageLog log, {
+  required String accountName,
+  required bool showIp,
+}) {
+  final duration = formatUseTime(log.useTime);
+  final lines = <String>[
+    '账号：$accountName',
+    '标题：${usageLogTitle(log)}',
+    '模型：${log.model}',
+    '类型：${usageLogTypeLabel(log.type)}',
+    '结果：${log.success ? '成功' : '失败'}',
+    '额度：${formatUsageQuota(log.quotaCost, log.type)}',
+    '输入：${formatTokenCount(log.promptTokens)}',
+    '输出：${formatTokenCount(log.completionTokens)}',
+    '合计：${formatTokenCount(log.totalTokens)}',
+    if (log.cacheReadTokens > 0) '缓存读取：${formatTokenCount(log.cacheReadTokens)}',
+    if (log.cacheWriteTokens > 0) '缓存写入：${formatTokenCount(log.cacheWriteTokens)}',
+    '密钥：${log.apiKeyName}',
+    if (log.group.trim().isNotEmpty) '分组：${log.group.trim()}',
+    if (duration.isNotEmpty) '耗时：$duration',
+    '流式：${log.isStream ? '是' : '否'}',
+    if (showIp && log.ip.trim().isNotEmpty) 'IP：${log.ip.trim()}',
+    if (log.requestId.trim().isNotEmpty) '请求 ID：${log.requestId.trim()}',
+    if (log.upstreamRequestId.trim().isNotEmpty)
+      '上游请求 ID：${log.upstreamRequestId.trim()}',
+    if (log.channelName.trim().isNotEmpty) '渠道：${log.channelName.trim()}',
+    if (log.username.trim().isNotEmpty) '站点用户：${log.username.trim()}',
+    '时间：${formatDateTimeFull(log.time)}',
+    if (log.content.trim().isNotEmpty) '内容：${log.content.trim()}',
+    if (log.other.isNotEmpty) '附加数据：\n${prettyJsonMap(log.other)}',
+  ];
+  return lines.join('\n');
 }
 
 String formatShortDate(String iso) {

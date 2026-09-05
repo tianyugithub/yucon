@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:vault/app/models/domain.dart';
 
 const defaultQuotaPerUnit = 500000.0;
@@ -192,3 +194,67 @@ bool isMaskedKey(String? value) =>
     value.contains('*') ||
     value.contains('•') ||
     value.contains('·');
+
+Map<String, dynamic> parseUsageLogOther(Object? value) {
+  if (value is Map) {
+    return Map<String, dynamic>.from(value);
+  }
+  if (value is String) {
+    final text = value.trim();
+    if (text.isEmpty || text == '{}' || text == 'null') {
+      return {};
+    }
+    try {
+      final decoded = jsonDecode(text);
+      if (decoded is Map) {
+        return Map<String, dynamic>.from(decoded);
+      }
+    } catch (_) {}
+  }
+  return {};
+}
+
+int usageLogOtherInt(Map<String, dynamic> other, List<String> keys) {
+  for (final key in keys) {
+    final value = other[key];
+    if (value is num) {
+      return value.toInt();
+    }
+    final parsed = num.tryParse(value?.toString() ?? '');
+    if (parsed != null) {
+      return parsed.toInt();
+    }
+  }
+  return 0;
+}
+
+int usageLogCacheReadTokens(Map<String, dynamic> other) => usageLogOtherInt(
+  other,
+  const ['cache_tokens', 'cache_read_tokens', 'cached_tokens'],
+);
+
+int usageLogCacheWriteTokens(Map<String, dynamic> other) {
+  final split =
+      usageLogOtherInt(other, const ['cache_creation_tokens_5m']) +
+      usageLogOtherInt(other, const ['cache_creation_tokens_1h']);
+  if (split > 0) {
+    return split;
+  }
+  return usageLogOtherInt(other, const [
+    'cache_creation_tokens',
+    'cache_write_tokens',
+  ]);
+}
+
+String prettyJsonMap(Map<String, dynamic> value) {
+  if (value.isEmpty) {
+    return '';
+  }
+  return const JsonEncoder.withIndent('  ').convert(value);
+}
+
+extension UsageLogTokens on UsageLog {
+  int get cacheReadTokens => usageLogCacheReadTokens(other);
+  int get cacheWriteTokens => usageLogCacheWriteTokens(other);
+  int get totalTokens => promptTokens + completionTokens;
+}

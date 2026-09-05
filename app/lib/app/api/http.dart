@@ -828,7 +828,12 @@ Future<RequestResult<T>> requestJsonDetailed<T>({
   );
   if (headers != null) {
     headers.forEach((key, value) {
-      header[key] = sanitizeHeaderValue(value);
+      final sanitized = sanitizeHeaderValue(value);
+      if (sanitized.isEmpty) {
+        header.remove(key);
+      } else {
+        header[key] = sanitized;
+      }
     });
   }
   if (userId != null && userId.isNotEmpty) {

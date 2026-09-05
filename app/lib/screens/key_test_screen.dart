@@ -35,6 +35,7 @@ class _KeyTestScreenState extends State<KeyTestScreen> {
   String? _current;
   _ModelFilter _filter = _ModelFilter.all;
   String _query = '';
+  ModelProbeKind? _protocol;
 
   @override
   void initState() {
@@ -137,6 +138,14 @@ class _KeyTestScreenState extends State<KeyTestScreen> {
     });
   }
 
+  ModelProbeKind _displayKind(String model) {
+    final auto = classifyModelProbe(model);
+    if (_protocol != null && isTextProbeKind(auto)) {
+      return _protocol!;
+    }
+    return auto;
+  }
+
   Future<void> _testOne(
     String model, {
     int? runId,
@@ -151,7 +160,7 @@ class _KeyTestScreenState extends State<KeyTestScreen> {
       _current = model;
       _results[model] = ModelProbeResult(
         model: model,
-        kind: classifyModelProbe(model),
+        kind: _displayKind(model),
         status: ModelProbeStatus.running,
         message: '测试中',
       );
@@ -162,6 +171,7 @@ class _KeyTestScreenState extends State<KeyTestScreen> {
       baseUrl: _baseUrl,
       model: model,
       allowExpensive: allowExpensive,
+      protocol: _protocol,
     );
     if (!mounted || (runId != null && runId != _runId)) {
       return;
@@ -251,7 +261,7 @@ class _KeyTestScreenState extends State<KeyTestScreen> {
                 padding: const EdgeInsets.fromLTRB(15, 4, 15, 24),
                 children: [
                   const TipBanner(
-                    text: '对话、Claude、Codex 都会发同一句测试话，并显示模型的回答。图像模型会真正出图并显示在结果里。全部测试时会跳过图像和视频，点某一行可单独测。',
+                    text: '对话、Claude、Codex 都会发同一句测试话，并显示模型的回答。默认按模型名自动选探测点，失败会自动换端点重试；在「探测点」里手动指定后，只用选中的端点直测。Claude 会伪装成 Claude Code 客户端、Codex 会伪装成 Codex CLI 客户端，兼容只认官方客户端的站点。图像模型会真正出图并显示在结果里。全部测试时会跳过图像和视频，点某一行可单独测。',
                   ),
                   const YuconCard(
                     padding: EdgeInsets.fromLTRB(12, 11, 12, 11),
@@ -322,6 +332,19 @@ class _KeyTestScreenState extends State<KeyTestScreen> {
                       ),
                     ),
                   const SizedBox(height: 12),
+                  const SectionTitle(text: '探测点'),
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        _protocolChip(null, '自动'),
+                        _protocolChip(ModelProbeKind.chat, '对话'),
+                        _protocolChip(ModelProbeKind.claude, 'Claude'),
+                        _protocolChip(ModelProbeKind.codex, 'Codex'),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
                   Row(
                     children: [
                       Expanded(
@@ -389,39 +412,66 @@ class _KeyTestScreenState extends State<KeyTestScreen> {
     );
   }
 
-  Widget _filterChip(_ModelFilter value, String label) {
-    final selected = _filter == value;
+  Widget _protocolChip(ModelProbeKind? value, String label) {
     return Padding(
       padding: const EdgeInsets.only(right: 6),
-      child: GestureDetector(
-        onTap: () => setState(() => _filter = value),
-        child: Container(
-          height: 30,
-          padding: const EdgeInsets.symmetric(horizontal: 11),
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: selected ? ThemeDefine.kColorSoft : Theme.of(context).cardColor,
-            borderRadius: BorderRadius.circular(99),
-            border: Border.all(
-              color: selected ? const Color(0x29FA2C19) : Colors.transparent,
-            ),
+      child: _pill(
+        label: label,
+        selected: _protocol == value,
+        onTap: _running
+            ? null
+            : () => setState(() {
+                  _protocol = value;
+                  _results.clear();
+                }),
+      ),
+    );
+  }
+
+  Widget _pill({
+    required String label,
+    required bool selected,
+    VoidCallback? onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        height: 30,
+        padding: const EdgeInsets.symmetric(horizontal: 11),
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: selected ? ThemeDefine.kColorSoft : Theme.of(context).cardColor,
+          borderRadius: BorderRadius.circular(99),
+          border: Border.all(
+            color: selected ? const Color(0x29FA2C19) : Colors.transparent,
           ),
-          child: Text(
-            label,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: selected ? ThemeDefine.kColorPrimary : ThemeDefine.kColorText,
-            ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: selected ? ThemeDefine.kColorPrimary : ThemeDefine.kColorText,
           ),
         ),
       ),
     );
   }
 
+  Widget _filterChip(_ModelFilter value, String label) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 6),
+      child: _pill(
+        label: label,
+        selected: _filter == value,
+        onTap: () => setState(() => _filter = value),
+      ),
+    );
+  }
+
   Widget _modelTile(String model) {
     final result = _results[model];
-    final kind = result?.kind ?? classifyModelProbe(model);
+    final kind = result?.kind ?? _displayKind(model);
     final status = result?.status ?? ModelProbeStatus.pending;
     final color = switch (status) {
       ModelProbeStatus.ok => ThemeDefine.kColorGreenBright,

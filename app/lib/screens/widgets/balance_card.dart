@@ -15,6 +15,7 @@ class BalanceOverviewCard extends StatefulWidget {
     required this.loading,
     required this.onRefresh,
     required this.onCheckin,
+    this.excludedCount = 0,
   });
 
   final double totalQuota;
@@ -25,6 +26,7 @@ class BalanceOverviewCard extends StatefulWidget {
   final bool loading;
   final VoidCallback onRefresh;
   final VoidCallback onCheckin;
+  final int excludedCount;
 
   @override
   State<BalanceOverviewCard> createState() => _BalanceOverviewCardState();
@@ -91,6 +93,13 @@ class _BalanceOverviewCardState extends State<BalanceOverviewCard> with SingleTi
                               height: 1,
                             ),
                           ),
+                          if (widget.excludedCount > 0) ...[
+                            const SizedBox(height: 6),
+                            Text(
+                              '已排除 ${widget.excludedCount} 个账号',
+                              style: const TextStyle(color: Color(0xA3FFFFFF), fontSize: 11, height: 1.2),
+                            ),
+                          ],
                         ],
                       ),
                     ),

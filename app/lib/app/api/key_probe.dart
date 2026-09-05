@@ -7,6 +7,35 @@ import 'package:vault/app/utils/format.dart';
 const kModelProbePrompt = '只回复两个字：可用';
 const kModelProbeImagePrompt = '红色圆，白底，简笔画';
 
+const kClaudeCodeUserAgent = 'claude-cli/2.1.7 (external, cli)';
+const kCodexCliUserAgent = 'codex_cli_rs/0.44.0 (Mac OS 15.6.0; arm64) iTerm.app/3.6.5';
+
+Map<String, String> claudeCodeProbeHeaders(String apiKey) {
+  return {
+    'User-Agent': kClaudeCodeUserAgent,
+    'Accept': 'application/json',
+    'x-app': 'cli',
+    'anthropic-version': '2023-06-01',
+    'anthropic-beta': 'claude-code-20250219,oauth-2025-04-20',
+    'x-api-key': apiKey,
+    'Origin': '',
+    'Referer': '',
+    'Accept-Language': '',
+  };
+}
+
+Map<String, String> codexCliProbeHeaders() {
+  return {
+    'User-Agent': kCodexCliUserAgent,
+    'Accept': 'application/json',
+    'originator': 'codex_cli_rs',
+    'OpenAI-Beta': 'responses=experimental',
+    'Origin': '',
+    'Referer': '',
+    'Accept-Language': '',
+  };
+}
+
 class KeyTestPrep {
   const KeyTestPrep({
     required this.secret,
@@ -492,8 +521,12 @@ Future<ModelProbeResult> probeModel({
   required String apiKey,
   required String model,
   bool allowExpensive = false,
+  ModelProbeKind? protocol,
 }) async {
   final kind = classifyModelProbe(model);
+  final forcedProtocol = protocol != null && isTextProbeKind(protocol) ? protocol : null;
+  final effectiveKind =
+      isTextProbeKind(kind) && forcedProtocol != null ? forcedProtocol : kind;
   if ((kind == ModelProbeKind.video || kind == ModelProbeKind.image) && !allowExpensive) {
     return ModelProbeResult(
       model: model,
@@ -568,7 +601,8 @@ Future<ModelProbeResult> probeModel({
           baseUrl: url,
           apiKey: apiKey,
           model: model,
-          preferred: kind,
+          preferred: effectiveKind,
+          strict: forcedProtocol != null,
         );
         final reply = extractProbeReply(probed.payload);
         final duration = DateTime.now().difference(started);
@@ -585,7 +619,7 @@ Future<ModelProbeResult> probeModel({
   } catch (error) {
     return ModelProbeResult(
       model: model,
-      kind: kind,
+      kind: effectiveKind,
       status: ModelProbeStatus.fail,
       message: describeKeyProbeError(error),
       duration: DateTime.now().difference(started),
@@ -729,7 +763,17 @@ Future<_TextProbe> _probeTextModel({
   required String apiKey,
   required String model,
   required ModelProbeKind preferred,
+  bool strict = false,
 }) async {
+  if (strict) {
+    final payload = await _invokeTextProtocol(
+      baseUrl: baseUrl,
+      apiKey: apiKey,
+      model: model,
+      kind: preferred,
+    );
+    return _TextProbe(kind: preferred, payload: payload);
+  }
   final tried = <ModelProbeKind>{};
   var next = preferred;
   Object? lastError;
@@ -829,10 +873,7 @@ Future<Object> _probeClaude({
         {'role': 'user', 'content': kModelProbePrompt},
       ],
     },
-    headers: {
-      'anthropic-version': '2023-06-01',
-      'x-api-key': apiKey,
-    },
+    headers: claudeCodeProbeHeaders(apiKey),
     timeout: const Duration(seconds: 40),
   );
 }
@@ -853,6 +894,7 @@ Future<Object> _probeCodex({
         'max_output_tokens': 64,
         'stream': false,
       },
+      headers: codexCliProbeHeaders(),
       timeout: const Duration(seconds: 45),
     );
   } catch (error) {
@@ -877,6 +919,7 @@ Future<Object> _probeCodex({
         'max_output_tokens': 64,
         'stream': false,
       },
+      headers: codexCliProbeHeaders(),
       timeout: const Duration(seconds: 45),
     );
   }

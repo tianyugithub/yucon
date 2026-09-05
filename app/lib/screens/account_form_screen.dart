@@ -381,12 +381,38 @@ class _AccountFormScreenState extends State<AccountFormScreen> {
                 ),
                 LabeledField(
                   label: '充值比例',
-                  last: true,
                   hint: '站点按美元扣费。这里填多少人民币等于 1 美元额度，默认 1。例如 1 元人民币 = 1 美元填 1，2.5 元人民币 = 1 美元填 2.5。',
                   child: TextField(
                     controller: _topupRatio,
                     keyboardType: const TextInputType.numberWithOptions(decimal: true),
                     decoration: inCardInput(hint: '默认 1'),
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.only(top: 4),
+                  decoration: const BoxDecoration(
+                    border: Border(top: BorderSide(color: ThemeDefine.kColorLine)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('不计入总余额', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+                            SizedBox(height: 3),
+                            Text(
+                              '看板和「我的」的合计额度将忽略此账号，账号页仍显示自己的余额。',
+                              style: TextStyle(color: ThemeDefine.kColorText, fontSize: 12, height: 1.45),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Switch(
+                        value: _form.excludeFromTotalQuota,
+                        onChanged: (value) => setState(() => _form.excludeFromTotalQuota = value),
+                      ),
+                    ],
                   ),
                 ),
               ],

@@ -270,6 +270,13 @@ class _AccountDetailScreenState extends State<AccountDetailScreen> {
                   '累计已用 ${formatCurrency(account.usedQuota)} · 累计调用 ${account.requestCount}',
                   style: const TextStyle(color: ThemeDefine.kColorText, fontSize: 12),
                 ),
+                if (account.excludeFromTotalQuota) ...[
+                  const SizedBox(height: 8),
+                  const Text(
+                    '此账号不计入看板和「我的」的合计额度。',
+                    style: TextStyle(color: ThemeDefine.kColorText, fontSize: 12, height: 1.45),
+                  ),
+                ],
               ],
             ),
           ),
@@ -342,6 +349,8 @@ class _AccountDetailScreenState extends State<AccountDetailScreen> {
                 title: '充值比例',
                 value: formatTopupRatioExplain(account.topupRatio),
               ),
+              if (account.excludeFromTotalQuota)
+                const GroupTile(title: '计入合计', value: '不计入'),
               if (preset.supportsModelCatalog)
                 GroupTile(
                   title: '模型比价',

@@ -6,7 +6,7 @@
 
 兼容 [New API](https://github.com/QuantumNous/new-api)、[One API](https://github.com/songquanpeng/one-api)、[Sub2API](https://github.com/Wei-Shaw/sub2api) 以及与之接口一致的自建或第三方站点。钥仓是独立客户端，与上述项目及其运营方无隶属、合作或担保关系。
 
-当前版本 **0.1.1**。[下载安装包](https://github.com/tianyugithub/yucon/releases/latest)
+当前版本 **0.1.2**。[下载安装包](https://github.com/tianyugithub/yucon/releases/latest)
 
 ## 功能
 
@@ -18,16 +18,19 @@
 - 同时管理多个站点，支持用户名密码或系统访问令牌登录
 - 同步余额、分组与签到
 - 可选 HTTP、HTTPS 或 SOCKS 代理
+- 可将个别账号排除出总额度统计
 
 **密钥**
 - 查看、创建、停用和删除密钥
 - 设置额度、分组和可用模型
 - 复制完整 API 调用地址
 - 在独立窗口测试对话、Claude、Codex 与图像模型
+- 可手动指定探测点，并伪装成 Claude Code / Codex CLI 客户端
 
 **日志**
 - 按账号、分组、密钥、模型筛选调用记录
 - 查看用量与耗时，可选择显示调用方 IP
+- 查看单条调用的请求 ID、渠道与用户名等详情
 
 **数据**
 - 登录密码和会话写入系统安全存储

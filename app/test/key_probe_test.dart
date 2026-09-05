@@ -127,6 +127,24 @@ void main() {
     expect(looksLikeInputMustBeList('Input must be a list'), isTrue);
   });
 
+  test('disguises probes as Claude Code / Codex CLI clients', () {
+    final claude = claudeCodeProbeHeaders('sk-test');
+    expect(claude['User-Agent'], kClaudeCodeUserAgent);
+    expect(claude['User-Agent'], contains('claude-cli/'));
+    expect(claude['x-app'], 'cli');
+    expect(claude['anthropic-version'], '2023-06-01');
+    expect(claude['anthropic-beta'], contains('claude-code-20250219'));
+    expect(claude['x-api-key'], 'sk-test');
+    expect(claude['Origin'], isEmpty);
+
+    final codex = codexCliProbeHeaders();
+    expect(codex['User-Agent'], kCodexCliUserAgent);
+    expect(codex['User-Agent'], contains('codex_cli_rs/'));
+    expect(codex['originator'], 'codex_cli_rs');
+    expect(codex['OpenAI-Beta'], 'responses=experimental');
+    expect(codex['Referer'], isEmpty);
+  });
+
   test('extracts image bytes and urls from generation payloads', () {
     const png =
         'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
