@@ -6,7 +6,7 @@
 
 兼容 [New API](https://github.com/QuantumNous/new-api)、[One API](https://github.com/songquanpeng/one-api)、[Sub2API](https://github.com/Wei-Shaw/sub2api) 以及与之接口一致的自建或第三方站点。钥仓是独立客户端，与上述项目及其运营方无隶属、合作或担保关系。
 
-当前版本 **0.1.0**。[下载安装包](https://github.com/tianyugithub/yucon/releases/latest)
+当前版本 **0.1.1**。[下载安装包](https://github.com/tianyugithub/yucon/releases/latest)
 
 ## 功能
 
