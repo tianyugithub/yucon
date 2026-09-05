@@ -7,11 +7,13 @@ import 'package:vault/app/api/key_probe.dart';
 import 'package:vault/app/api/newapi.dart';
 import 'package:vault/app/api/sub2api.dart';
 import 'package:vault/app/constants/model_brands.dart';
+import 'package:vault/app/constants/open_source.dart';
 import 'package:vault/app/constants/platforms.dart';
 import 'package:vault/app/models/domain.dart';
 import 'package:vault/app/debug/http_request_log.dart';
 import 'package:vault/app/storage/vault.dart';
 import 'package:vault/app/storage/vault_backup.dart';
+import 'package:vault/app/utils/app_update.dart';
 import 'package:vault/app/utils/format.dart';
 import 'package:vault/app/utils/model_pricing.dart';
 import 'package:vault/app/utils/quota.dart';
@@ -49,6 +51,10 @@ class VaultStore extends ChangeNotifier {
   bool isRefreshing = false;
   bool hydrated = false;
   int actionCounter = 0;
+  AppReleaseInfo? latestRelease;
+  bool checkingUpdate = false;
+  String? updateCheckError;
+  String? _notifiedUpdateVersion;
   final Map<String, List<TokenGroupOption>> tokenGroups = {};
   final Map<String, List<String>> tokenModels = {};
   final Map<String, SitePricingCatalog> pricingCatalogs = {};
@@ -2433,6 +2439,42 @@ class VaultStore extends ChangeNotifier {
     }
     notify(message, FeedbackType.warning);
     return true;
+  }
+
+  bool get hasAppUpdate {
+    final release = latestRelease;
+    return release != null && isAppVersionNewer(release.version, kAppVersion);
+  }
+
+  Future<void> checkAppUpdate({
+    bool force = false,
+    bool notifyIfAvailable = false,
+  }) async {
+    if (checkingUpdate) {
+      return;
+    }
+    checkingUpdate = true;
+    updateCheckError = null;
+    _bump();
+    try {
+      final proxy = settings.networkProxy.isConfigured ? settings.networkProxy : null;
+      final release = await runWithProxy(proxy, fetchLatestGithubRelease);
+      latestRelease = release;
+      if (notifyIfAvailable &&
+          isAppVersionNewer(release.version, kAppVersion) &&
+          _notifiedUpdateVersion != release.version) {
+        _notifiedUpdateVersion = release.version;
+        notify('发现新版本 v${release.version}', FeedbackType.text);
+      }
+    } catch (error) {
+      updateCheckError = userFacingError(error, '暂时无法检查更新');
+      if (force) {
+        notify(updateCheckError!, FeedbackType.error);
+      }
+    } finally {
+      checkingUpdate = false;
+      _bump();
+    }
   }
 
   void notify(String message, [FeedbackType type = FeedbackType.success]) {

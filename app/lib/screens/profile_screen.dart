@@ -1,10 +1,16 @@
+import 'dart:io';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:vault/app/constants/open_source.dart';
 import 'package:vault/app/constants/platforms.dart';
 import 'package:vault/app/models/domain.dart';
 import 'package:vault/app/modules/vault_store.dart';
 import 'package:vault/app/privacy/screen_privacy.dart';
+import 'package:vault/app/utils/app_update.dart';
 import 'package:vault/app/utils/format.dart';
 import 'package:vault/screens/data_backup_screen.dart';
 import 'package:vault/screens/developer_options_screen.dart';
@@ -205,6 +211,16 @@ class ProfileScreen extends StatelessWidget {
               ),
             ),
             GroupTile(
+              title: '检查更新',
+              subtitle: _updateSubtitle(store),
+              value: store.hasAppUpdate ? '可更新' : null,
+              leading: _cellIconWidget(
+                const Icon(Icons.system_update_alt, size: 16, color: Colors.white),
+                const Color(0xFF1F6FEB),
+              ),
+              onTap: () => _handleUpdate(context, store),
+            ),
+            GroupTile(
               title: '开源与致谢',
               subtitle: '本软件、兼容网关与许可证',
               leading: _cellIconWidget(
@@ -249,6 +265,97 @@ class ProfileScreen extends StatelessWidget {
 
   Widget _cellIconWidget(Widget child, Color color) {
     return SquareIcon(size: 28, radius: 8, color: color, child: child);
+  }
+
+  String _updateSubtitle(VaultStore store) {
+    if (store.checkingUpdate) {
+      return '正在检查 GitHub 发布';
+    }
+    if (store.hasAppUpdate) {
+      return '发现新版本 v${store.latestRelease!.version}';
+    }
+    if (store.latestRelease != null) {
+      return '当前 v$kAppVersion，已是最新';
+    }
+    if (store.updateCheckError != null) {
+      return '检查失败，点按重试';
+    }
+    return '当前 v$kAppVersion';
+  }
+
+  Future<void> _handleUpdate(BuildContext context, VaultStore store) async {
+    if (store.checkingUpdate) {
+      store.notify('正在检查更新', FeedbackType.text);
+      return;
+    }
+    await store.checkAppUpdate(force: true);
+    if (!context.mounted) {
+      return;
+    }
+    if (store.hasAppUpdate) {
+      _showUpdateSheet(context, store);
+    } else if (store.updateCheckError == null) {
+      store.notify('已是最新版本 v$kAppVersion', FeedbackType.text);
+    }
+  }
+
+  void _showUpdateSheet(BuildContext context, VaultStore store) {
+    final release = store.latestRelease;
+    if (release == null) {
+      return;
+    }
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) {
+        return Padding(
+          padding: EdgeInsets.fromLTRB(20, 20, 20, 20 + MediaQuery.of(context).viewInsets.bottom),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text('发现新版本', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+              const SizedBox(height: 8),
+              Text(
+                'v${release.version}  ·  当前 v$kAppVersion',
+                style: const TextStyle(color: ThemeDefine.kColorText, height: 1.5),
+              ),
+              const SizedBox(height: 12),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 240),
+                child: SingleChildScrollView(
+                  child: Text(
+                    release.notes.isEmpty ? '此版本未附更新说明。' : release.notes,
+                    style: const TextStyle(height: 1.5),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              PrimaryButton(
+                label: '前往下载',
+                onPressed: () {
+                  Navigator.pop(context);
+                  _openUpdateUrl(context, store, release);
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _openUpdateUrl(BuildContext context, VaultStore store, AppReleaseInfo release) async {
+    final url = preferredUpdateUrl(release, android: !kIsWeb && Platform.isAndroid);
+    final uri = Uri.parse(url);
+    try {
+      final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (opened) {
+        return;
+      }
+    } catch (_) {}
+    await Clipboard.setData(ClipboardData(text: url));
+    store.notify('无法打开下载页，已复制链接', FeedbackType.text);
   }
 
   Future<void> _editThreshold(BuildContext context, VaultStore store) async {

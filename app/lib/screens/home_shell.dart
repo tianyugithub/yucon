@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -48,6 +50,7 @@ class _HomeShellState extends State<HomeShell> {
     if (refreshed) {
       await store.autoCheckinAccounts();
     }
+    unawaited(store.checkAppUpdate(notifyIfAvailable: true));
   }
 
   void _openCreate() {
@@ -211,6 +214,8 @@ class _HomeShellState extends State<HomeShell> {
     final color = selected
         ? ThemeDefine.kColorPrimary
         : ThemeDefine.kColorTabInactive;
+    final showUpdateDot =
+        index == 4 && context.select((VaultStore store) => store.hasAppUpdate);
     return Expanded(
       child: InkWell(
         onTap: () => setState(() => _tab = index),
@@ -218,7 +223,27 @@ class _HomeShellState extends State<HomeShell> {
           mainAxisAlignment: MainAxisAlignment.center,
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            TabIcon(name: icon, size: 18, color: color),
+            Stack(
+              clipBehavior: Clip.none,
+              children: [
+                TabIcon(name: icon, size: 18, color: color),
+                if (showUpdateDot)
+                  const Positioned(
+                    right: -3,
+                    top: -2,
+                    child: SizedBox(
+                      width: 7,
+                      height: 7,
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: ThemeDefine.kColorPrimary,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
             const SizedBox(height: 2),
             Text(
               label,
