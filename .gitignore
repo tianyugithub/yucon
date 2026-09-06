@@ -17,6 +17,7 @@ unpackage/
 *.iml
 .idea/
 .vscode/
+.cursor/
 android/local.properties
 app/android/local.properties
 **/local.properties
