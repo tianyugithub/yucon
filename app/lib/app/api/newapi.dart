@@ -151,12 +151,16 @@ class NewApiUsageLog {
       quota: readNumber(json['quota']),
       promptTokens: (json['prompt_tokens'] as num?)?.toInt(),
       completionTokens: (json['completion_tokens'] as num?)?.toInt(),
-      createdAt: created is num ? created : num.tryParse(created?.toString() ?? ''),
+      createdAt: created is num
+          ? created
+          : num.tryParse(created?.toString() ?? ''),
       timeIso: createdAtToIso(created),
       ip: json['ip']?.toString(),
       group: json['group']?.toString(),
       content: json['content']?.toString(),
-      useTime: json['use_time'] as num? ?? num.tryParse(json['use_time']?.toString() ?? ''),
+      useTime:
+          json['use_time'] as num? ??
+          num.tryParse(json['use_time']?.toString() ?? ''),
       isStream: json['is_stream'] == true || json['is_stream'] == 1,
       requestId: json['request_id']?.toString(),
       upstreamRequestId: json['upstream_request_id']?.toString(),
@@ -205,11 +209,123 @@ class SiteStatus {
     required this.quotaPerUnit,
     required this.checkinEnabled,
     required this.systemName,
+    this.registerEnabled = true,
+    this.passwordLoginEnabled = true,
+    this.googleOAuth = false,
+    this.githubOAuth = false,
   });
 
   final double quotaPerUnit;
   final bool checkinEnabled;
   final String systemName;
+  final bool registerEnabled;
+  final bool passwordLoginEnabled;
+  final bool googleOAuth;
+  final bool githubOAuth;
+
+  bool get hasOAuth => googleOAuth || githubOAuth;
+}
+
+bool _statusFlag(Map<String, dynamic> data, List<String> keys) {
+  for (final key in keys) {
+    if (!data.containsKey(key)) {
+      continue;
+    }
+    final value = data[key];
+    if (value == true || value == 1 || value == 'true' || value == '1') {
+      return true;
+    }
+    if (value is String &&
+        value.trim().isNotEmpty &&
+        value != '0' &&
+        value != 'false') {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool _statusEnabled(
+  Map<String, dynamic> data,
+  List<String> keys, {
+  bool fallback = true,
+}) {
+  for (final key in keys) {
+    if (!data.containsKey(key)) {
+      continue;
+    }
+    final value = data[key];
+    if (value == false || value == 0 || value == 'false' || value == '0') {
+      return false;
+    }
+    if (value == true || value == 1 || value == 'true' || value == '1') {
+      return true;
+    }
+  }
+  return fallback;
+}
+
+bool _oidcLooksLikeGoogle(Map<String, dynamic> data) {
+  if (!_statusFlag(data, [
+    'oidc_enabled',
+    'oidc',
+    'oidc_oauth',
+    'OIDCEnabled',
+  ])) {
+    final clientId = (data['oidc_client_id'] ?? data['OIDCClientId'] ?? '')
+        .toString()
+        .trim();
+    if (clientId.isEmpty) {
+      return false;
+    }
+  }
+  final blob = [
+    data['oidc_issuer'],
+    data['oidc_well_known'],
+    data['oidc_authorization_endpoint'],
+    data['oidc_account_domain'],
+    data['OIDCIssuer'],
+  ].join(' ').toLowerCase();
+  return blob.contains('google') || blob.contains('accounts.google');
+}
+
+SiteStatus siteStatusFromData(Map<String, dynamic> data) {
+  final oauth = asRecord(data['oauth']);
+  final google =
+      _statusFlag(data, [
+        'google_oauth',
+        'GoogleOAuth',
+        'google_login',
+        'google_client_id',
+      ]) ||
+      oauth['google'] == true ||
+      _oidcLooksLikeGoogle(data);
+  final github =
+      _statusFlag(data, [
+        'github_oauth',
+        'GitHubOAuth',
+        'github_login',
+        'github_client_id',
+      ]) ||
+      oauth['github'] == true;
+  return SiteStatus(
+    quotaPerUnit: readNumber(data['quota_per_unit'], defaultQuotaPerUnit) == 0
+        ? defaultQuotaPerUnit
+        : readNumber(data['quota_per_unit'], defaultQuotaPerUnit),
+    checkinEnabled: data['checkin_enabled'] == true,
+    systemName: data['system_name']?.toString() ?? '',
+    registerEnabled: _statusEnabled(data, [
+      'register_enabled',
+      'RegisterEnabled',
+    ]),
+    passwordLoginEnabled: _statusEnabled(data, [
+      'password_login_enabled',
+      'password_login',
+      'PasswordLoginEnabled',
+    ]),
+    googleOAuth: google,
+    githubOAuth: github,
+  );
 }
 
 class ConnectResult {
@@ -277,7 +393,10 @@ bool newApiAccessTokenIsFresh(String token, {int skewSeconds = 60}) {
   return exp > DateTime.now().millisecondsSinceEpoch ~/ 1000 + skewSeconds;
 }
 
-Future<NewApiAuthRefresh?> refreshNewApiAccessToken(String baseUrl, String cookies) async {
+Future<NewApiAuthRefresh?> refreshNewApiAccessToken(
+  String baseUrl,
+  String cookies,
+) async {
   final cookieHeader = cookies.trim();
   if (cookieHeader.isEmpty) {
     return null;
@@ -310,11 +429,19 @@ Future<NewApiAuthRefresh?> refreshNewApiAccessToken(String baseUrl, String cooki
   if (payload['success'] == false) {
     final code = payload['code']?.toString() ?? '';
     final message = payload['message']?.toString() ?? '';
-    if (RegExp(r'AUTH_REFRESH|REFRESH_TOKEN|未登录|登录过期', caseSensitive: false)
-        .hasMatch('$code $message')) {
-      throw ApiError(friendlyAuthMessage(message.isEmpty ? '登录已过期，请重新登录' : message), 401);
+    if (RegExp(
+      r'AUTH_REFRESH|REFRESH_TOKEN|未登录|登录过期',
+      caseSensitive: false,
+    ).hasMatch('$code $message')) {
+      throw ApiError(
+        friendlyAuthMessage(message.isEmpty ? '登录已过期，请重新登录' : message),
+        401,
+      );
     }
-    throw ApiError(friendlyAuthMessage(message.isEmpty ? '刷新登录状态失败' : message), result.status);
+    throw ApiError(
+      friendlyAuthMessage(message.isEmpty ? '刷新登录状态失败' : message),
+      result.status,
+    );
   }
 
   final data = asRecord(payload['data']);
@@ -332,10 +459,14 @@ Future<NewApiAuthRefresh?> refreshNewApiAccessToken(String baseUrl, String cooki
 
 T unwrap<T>(Map<String, dynamic> payload, String fallbackMessage) {
   if (payload['success'] == false) {
-    throw ApiError(friendlyAuthMessage(payload['message']?.toString() ?? fallbackMessage));
+    throw ApiError(
+      friendlyAuthMessage(payload['message']?.toString() ?? fallbackMessage),
+    );
   }
   if (payload['data'] == null) {
-    throw ApiError(friendlyAuthMessage(payload['message']?.toString() ?? fallbackMessage));
+    throw ApiError(
+      friendlyAuthMessage(payload['message']?.toString() ?? fallbackMessage),
+    );
   }
   return payload['data'] as T;
 }
@@ -391,7 +522,10 @@ List<T> collectItems<T>(Object? data, T Function(Map<String, dynamic>) map) {
 
 List<String> collectStrings(Object? data) {
   if (data is List) {
-    return data.map((item) => item.toString()).where((item) => item.isNotEmpty).toList();
+    return data
+        .map((item) => item.toString())
+        .where((item) => item.isNotEmpty)
+        .toList();
   }
   final record = asRecord(data);
   if (record['items'] is List) {
@@ -410,13 +544,7 @@ Future<SiteStatus> fetchSiteStatus(String baseUrl) async {
       path: '/api/status',
     );
     final data = asRecord(payload['data']);
-    return SiteStatus(
-      quotaPerUnit: readNumber(data['quota_per_unit'], defaultQuotaPerUnit) == 0
-          ? defaultQuotaPerUnit
-          : readNumber(data['quota_per_unit'], defaultQuotaPerUnit),
-      checkinEnabled: data['checkin_enabled'] == true,
-      systemName: data['system_name']?.toString() ?? '',
-    );
+    return siteStatusFromData(data);
   } catch (_) {
     return SiteStatus(
       quotaPerUnit: defaultQuotaPerUnit,
@@ -426,13 +554,165 @@ Future<SiteStatus> fetchSiteStatus(String baseUrl) async {
   }
 }
 
+class NewApiRegisterSettings {
+  const NewApiRegisterSettings({
+    this.registrationEnabled = false,
+    this.passwordRegisterEnabled = false,
+    this.emailVerifyEnabled = false,
+    this.turnstileEnabled = false,
+    this.turnstileSiteKey = '',
+    this.systemName = '',
+  });
+
+  final bool registrationEnabled;
+  final bool passwordRegisterEnabled;
+  final bool emailVerifyEnabled;
+  final bool turnstileEnabled;
+  final String turnstileSiteKey;
+  final String systemName;
+
+  factory NewApiRegisterSettings.fromJson(Map<String, dynamic> data) {
+    return NewApiRegisterSettings(
+      registrationEnabled: data['register_enabled'] == true,
+      passwordRegisterEnabled: data['password_register_enabled'] != false,
+      emailVerifyEnabled: data['email_verification'] == true,
+      turnstileEnabled: data['turnstile_check'] == true,
+      turnstileSiteKey: data['turnstile_site_key']?.toString().trim() ?? '',
+      systemName: data['system_name']?.toString().trim() ?? '',
+    );
+  }
+}
+
+Future<NewApiRegisterSettings> fetchNewApiRegisterSettings(
+  String baseUrl,
+) async {
+  final payload = await requestJson<Map<String, dynamic>>(
+    baseUrl: baseUrl,
+    path: '/api/status',
+  );
+  return NewApiRegisterSettings.fromJson(asRecord(payload['data']));
+}
+
+String describeNewApiRegisterError(String message) {
+  final lower = message.toLowerCase();
+  if (lower.contains('whitelist') || lower.contains('not allowed')) {
+    return '该站点开启了邮箱域名白名单，这个邮箱后缀不在允许范围。请换用站点白名单内的邮箱，或让站长把你的邮箱后缀加进白名单';
+  }
+  if (lower.contains('用户名已存在') ||
+      lower.contains('用户名已被注册') ||
+      (lower.contains('username') && lower.contains('exist'))) {
+    return '该用户名已被注册';
+  }
+  if (lower.contains('邮箱') &&
+          (lower.contains('已注册') ||
+              lower.contains('已被注册') ||
+              lower.contains('已存在')) ||
+      (lower.contains('email') && lower.contains('exist'))) {
+    return '这个邮箱已经注册过，请直接用已有账号登录';
+  }
+  if (lower.contains('验证码')) {
+    return '验证码不正确或已过期';
+  }
+  if (lower.contains('turnstile')) {
+    return '人机验证未通过，请重试';
+  }
+  if (lower.contains('注册') && (lower.contains('关闭') || lower.contains('禁用'))) {
+    return '该站点已关闭注册';
+  }
+  if (lower.contains('密码')) {
+    return '密码不符合站点要求（8 到 20 位）';
+  }
+  final trimmed = message.trim();
+  return trimmed.isEmpty ? '注册失败，请稍后重试' : trimmed;
+}
+
+bool looksLikeTurnstileRequired(Object error) {
+  final text = error is ApiError ? error.message : error.toString();
+  final lower = text.toLowerCase();
+  return lower.contains('turnstile') ||
+      text.contains('人机验证未通过') ||
+      text.contains('请先完成页面上的人机验证');
+}
+
+bool looksLikeNewApiUsernameTaken(String message) {
+  final lower = message.toLowerCase();
+  return lower.contains('该用户名已被注册') ||
+      lower.contains('用户名已存在') ||
+      (lower.contains('username') && lower.contains('exist'));
+}
+
+Future<void> sendNewApiVerifyCode({
+  required String baseUrl,
+  required String email,
+  required String turnstileToken,
+}) async {
+  final query =
+      'email=${Uri.encodeQueryComponent(email.trim())}'
+      '&turnstile=${Uri.encodeQueryComponent(turnstileToken.trim())}';
+  final payload = await requestJsonDetailed<Map<String, dynamic>>(
+    baseUrl: baseUrl,
+    path: '/api/verification?$query',
+  );
+  final record = payload.data;
+  if (record['success'] == false) {
+    throw ApiError(
+      describeNewApiRegisterError(record['message']?.toString() ?? ''),
+    );
+  }
+}
+
+Future<void> registerNewApiAccount({
+  required String baseUrl,
+  required String username,
+  required String password,
+  String? email,
+  String? verifyCode,
+  required String turnstileToken,
+}) async {
+  final suffix = turnstileToken.trim().isEmpty
+      ? ''
+      : '?turnstile=${Uri.encodeQueryComponent(turnstileToken.trim())}';
+  Map<String, dynamic> record;
+  int? status;
+  try {
+    final payload = await requestJsonDetailed<Map<String, dynamic>>(
+      baseUrl: baseUrl,
+      path: '/api/user/register$suffix',
+      method: 'POST',
+      data: {
+        'username': username,
+        'password': password,
+        if (email != null && email.trim().isNotEmpty) 'email': email.trim(),
+        if (verifyCode != null && verifyCode.trim().isNotEmpty)
+          'verification_code': verifyCode.trim(),
+      },
+    );
+    record = payload.data;
+    status = payload.status;
+  } on ApiError catch (error) {
+    throw ApiError(describeNewApiRegisterError(error.message), error.status);
+  }
+  if (record['success'] == false) {
+    throw ApiError(
+      describeNewApiRegisterError(record['message']?.toString() ?? ''),
+      status,
+    );
+  }
+}
+
 String extractIssuedToken(Map<String, dynamic> payload) {
   final data = payload['data'];
-  if (data is String) {
-    return pickToken([data]);
+  final token = data is String
+      ? pickToken([data])
+      : pickToken([
+          asRecord(data)['access_token'],
+          asRecord(data)['token'],
+          asRecord(data)['key'],
+        ]);
+  if (token.startsWith('sk-')) {
+    return '';
   }
-  final record = asRecord(data);
-  return pickToken([record['access_token'], record['token'], record['key']]);
+  return token;
 }
 
 Future<NewApiUser> fetchUserWithAuth(
@@ -448,17 +728,27 @@ Future<NewApiUser> fetchUserWithAuth(
     userId: userId,
     cookie: cookie,
   );
-    return NewApiUser.fromJson(asRecord(unwrap(payload, '读取账号信息失败')));
+  return NewApiUser.fromJson(asRecord(unwrap(payload, '读取账号信息失败')));
 }
 
-Future<String> issueAccessToken(String baseUrl, String cookie, String userId) async {
+Future<String> issueAccessToken(
+  String baseUrl,
+  String cookie,
+  String userId, {
+  String? accessToken,
+}) async {
+  final auth = loginTokenIssueAuth(accessToken ?? '', cookie);
+  if (auth.cookie.isEmpty && auth.bearer.isEmpty) {
+    return '';
+  }
   for (final method in ['GET', 'POST']) {
     try {
       final payload = await requestJson<Map<String, dynamic>>(
         baseUrl: baseUrl,
         path: '/api/user/token',
         method: method,
-        cookie: cookie,
+        cookie: auth.cookie,
+        token: auth.bearer.isEmpty ? null : auth.bearer,
         userId: userId,
       );
       if (payload['success'] == false) {
@@ -473,12 +763,56 @@ Future<String> issueAccessToken(String baseUrl, String cookie, String userId) as
   return '';
 }
 
+({String cookie, String bearer}) loginTokenIssueAuth(
+  String accessToken,
+  String cookies,
+) {
+  var cookie = cookies.trim();
+  var bearer = accessToken.trim();
+  if (bearer.startsWith(cookieAuthPrefix)) {
+    if (cookie.isEmpty) {
+      cookie = bearer.substring(cookieAuthPrefix.length);
+    }
+    bearer = '';
+  }
+  if (bearer.startsWith('sk-')) {
+    bearer = '';
+  }
+  return (cookie: cookie, bearer: bearer);
+}
+
+String visibleLoginAccessToken(String token) {
+  final value = token.trim();
+  if (value.isEmpty ||
+      value.startsWith(cookieAuthPrefix) ||
+      value.startsWith('sk-')) {
+    return '';
+  }
+  return value;
+}
+
+Future<String> ensureIssuedAccessToken({
+  required String baseUrl,
+  required String accessToken,
+  required String cookies,
+  required String userId,
+}) async {
+  final issued = await issueAccessToken(
+    baseUrl,
+    cookies,
+    userId,
+    accessToken: accessToken,
+  );
+  return issued.isNotEmpty ? issued : accessToken;
+}
+
 Future<ConnectResult> connectAccount({
   required String baseUrl,
   String? username,
   String? password,
   String? accessToken,
   String? userId,
+  String? turnstileToken,
 }) async {
   final normalized = normalizeBaseUrl(baseUrl);
   final status = await fetchSiteStatus(normalized);
@@ -491,9 +825,13 @@ Future<ConnectResult> connectAccount({
     if (loginName.isEmpty || loginPassword.isEmpty) {
       throw ApiError('请填写用户名和密码，或改用访问令牌');
     }
+    final turnstile = turnstileToken?.trim() ?? '';
+    final loginPath = turnstile.isEmpty
+        ? '/api/user/login'
+        : '/api/user/login?turnstile=${Uri.encodeQueryComponent(turnstile)}';
     final login = await requestJsonDetailed<Map<String, dynamic>>(
       baseUrl: normalized,
-      path: '/api/user/login',
+      path: loginPath,
       method: 'POST',
       data: {'username': loginName, 'password': loginPassword},
     );
@@ -515,7 +853,9 @@ Future<ConnectResult> connectAccount({
     final sessionCookie = mergeCookies([login.cookies]);
 
     if (token.isNotEmpty) {
-      final user = nestedUser ?? await fetchUserWithAuth(normalized, token, userId: resolvedUserId);
+      final user =
+          nestedUser ??
+          await fetchUserWithAuth(normalized, token, userId: resolvedUserId);
       return ConnectResult(
         baseUrl: normalized,
         accessToken: token,
@@ -535,10 +875,14 @@ Future<ConnectResult> connectAccount({
           cookie: sessionCookie,
           userId: resolvedUserId,
         );
-        final user = NewApiUser.fromJson(asRecord(unwrap(self.data, '读取账号信息失败')));
+        final user = NewApiUser.fromJson(
+          asRecord(unwrap(self.data, '读取账号信息失败')),
+        );
         return ConnectResult(
           baseUrl: normalized,
-          accessToken: asCookieAuth(mergeCookies([sessionCookie, self.cookies])),
+          accessToken: asCookieAuth(
+            mergeCookies([sessionCookie, self.cookies]),
+          ),
           cookies: mergeCookies([sessionCookie, self.cookies]),
           user: user,
           quotaPerUnit: status.quotaPerUnit,
@@ -546,9 +890,17 @@ Future<ConnectResult> connectAccount({
           systemName: status.systemName,
         );
       } catch (_) {
-        final issued = await issueAccessToken(normalized, sessionCookie, resolvedUserId);
+        final issued = await issueAccessToken(
+          normalized,
+          sessionCookie,
+          resolvedUserId,
+        );
         if (issued.isNotEmpty) {
-          final user = await fetchUserWithAuth(normalized, issued, userId: resolvedUserId);
+          final user = await fetchUserWithAuth(
+            normalized,
+            issued,
+            userId: resolvedUserId,
+          );
           return ConnectResult(
             baseUrl: normalized,
             accessToken: issued,
@@ -562,9 +914,7 @@ Future<ConnectResult> connectAccount({
       }
     }
 
-    throw ApiError(
-      '登录成功，但没能保存登录状态。请到站点「个人设置」创建访问令牌后再连接。',
-    );
+    throw ApiError('登录成功，但没能保存登录状态。请到站点「个人设置」创建访问令牌后再连接。');
   }
 
   try {
@@ -601,7 +951,7 @@ Future<NewApiUser> fetchCurrentUser(
     token: accessToken,
     userId: userId,
   );
-    return NewApiUser.fromJson(asRecord(unwrap(payload, '读取账号信息失败')));
+  return NewApiUser.fromJson(asRecord(unwrap(payload, '读取账号信息失败')));
 }
 
 Future<List<NewApiToken>> fetchTokens(
@@ -749,20 +1099,25 @@ Future<NewApiCheckinStats?> fetchCheckinStatus(
       return NewApiCheckinStats(enabled: false);
     }
     final data = asRecord(payload['data']);
-    final stats = asRecord(data['stats'].runtimeType == Null ? data : data['stats'] ?? data);
+    final stats = asRecord(
+      data['stats'].runtimeType == Null ? data : data['stats'] ?? data,
+    );
     final source = stats.isEmpty ? data : stats;
-    final records = ((source['records'] as List?) ?? (data['records'] as List?) ?? [])
-        .whereType<Map>()
-        .map(
-          (item) => NewApiCheckinRecord(
-            checkinDate: item['checkin_date']?.toString() ?? '',
-            quotaAwarded: readNumber(item['quota_awarded']),
-          ),
-        )
-        .toList();
+    final records =
+        ((source['records'] as List?) ?? (data['records'] as List?) ?? [])
+            .whereType<Map>()
+            .map(
+              (item) => NewApiCheckinRecord(
+                checkinDate: item['checkin_date']?.toString() ?? '',
+                quotaAwarded: readNumber(item['quota_awarded']),
+              ),
+            )
+            .toList();
     return NewApiCheckinStats(
       enabled: data['enabled'] != false,
-      checkedInToday: source['checked_in_today'] == true || data['checked_in_today'] == true,
+      checkedInToday:
+          source['checked_in_today'] == true ||
+          data['checked_in_today'] == true,
       records: records,
     );
   } catch (_) {
@@ -770,14 +1125,23 @@ Future<NewApiCheckinStats?> fetchCheckinStatus(
   }
 }
 
+String newApiCheckinPath({String? turnstileToken}) {
+  final token = turnstileToken?.trim() ?? '';
+  if (token.isEmpty) {
+    return '/api/user/checkin';
+  }
+  return '/api/user/checkin?turnstile=${Uri.encodeQueryComponent(token)}';
+}
+
 Future<({double quotaAwarded, String message})> doCheckin(
   String baseUrl,
   String accessToken,
-  String userId,
-) async {
+  String userId, {
+  String? turnstileToken,
+}) async {
   final payload = await requestJson<Map<String, dynamic>>(
     baseUrl: baseUrl,
-    path: '/api/user/checkin',
+    path: newApiCheckinPath(turnstileToken: turnstileToken),
     method: 'POST',
     token: accessToken,
     userId: userId,
@@ -900,7 +1264,9 @@ List<TokenGroupOption> parseUserGroups(Object? data) {
         toGroupOption(
           name,
           desc,
-          name == 'auto' ? '自动' : (ratioMatch?.group(1) ?? (value is num ? value : 1)),
+          name == 'auto'
+              ? '自动'
+              : (ratioMatch?.group(1) ?? (value is num ? value : 1)),
         ),
       );
       return;
@@ -954,8 +1320,12 @@ Future<List<TokenGroupOption>> fetchUserGroups(
       token: accessToken,
       userId: userId,
     );
-    final usable = asRecord(payload['usable_group'] ?? asRecord(payload['data'])['usable_group']);
-    final ratios = asRecord(payload['group_ratio'] ?? asRecord(payload['data'])['group_ratio']);
+    final usable = asRecord(
+      payload['usable_group'] ?? asRecord(payload['data'])['usable_group'],
+    );
+    final ratios = asRecord(
+      payload['group_ratio'] ?? asRecord(payload['data'])['group_ratio'],
+    );
     final groups = usable.keys
         .where((name) => name.isNotEmpty)
         .map(
@@ -980,7 +1350,9 @@ Future<List<String>> fetchGroupModels(
   String userId,
   String group,
 ) async {
-  final suffix = group.isEmpty ? '' : '?group=${Uri.encodeQueryComponent(group)}';
+  final suffix = group.isEmpty
+      ? ''
+      : '?group=${Uri.encodeQueryComponent(group)}';
   for (final path in [
     '/api/user/models$suffix',
     '/api/user/available_models$suffix',

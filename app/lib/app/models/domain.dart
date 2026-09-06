@@ -1,4 +1,4 @@
-enum PlatformType { newapi, oneapi, sub2api }
+enum PlatformType { newapi, sub2api }
 
 enum AccountStatus {
   active,
@@ -219,6 +219,7 @@ class PlatformPreset {
     required this.supportsCrossGroupRetry,
     required this.identityLabel,
     required this.identityPlaceholder,
+    required this.iconAsset,
   });
 
   final PlatformType type;
@@ -232,6 +233,7 @@ class PlatformPreset {
   final bool supportsCrossGroupRetry;
   final String identityLabel;
   final String identityPlaceholder;
+  final String iconAsset;
 
   bool get supportsModelCatalog => supportsKeyModelLimits;
 }
@@ -315,6 +317,9 @@ class Account {
   bool excludeFromTotalQuota;
 
   bool get needsRelogin => status == AccountStatus.expired;
+
+  bool get usesAccessTokenAuth =>
+      platformType != PlatformType.sub2api && authMode == AuthMode.accessToken;
 
   bool get networkBlocked => status == AccountStatus.blocked;
 
@@ -670,7 +675,12 @@ Map<String, dynamic> _usageLogOtherFromJson(Object? value) {
 enum UsageTimeRange { today, days7, days30, all }
 
 class DateWindow {
-  const DateWindow({this.startUnix, this.endUnix, this.startDate, this.endDate});
+  const DateWindow({
+    this.startUnix,
+    this.endUnix,
+    this.startDate,
+    this.endDate,
+  });
 
   final int? startUnix;
   final int? endUnix;
@@ -685,8 +695,8 @@ class UsageLogQuery {
     required this.accountId,
     this.page = 1,
     this.pageSize = 20,
-    this.type = 2,
-    this.range = UsageTimeRange.today,
+    this.type = 0,
+    this.range = UsageTimeRange.all,
     this.tokenName = '',
     this.modelName = '',
     this.group = '',
@@ -753,6 +763,112 @@ class UsageLogQueryResult {
   }
 }
 
+enum CaptchaSolverType { yesCaptcha, twoCaptcha, capMonsterCloud, capSolver }
+
+String captchaSolverTypeLabel(CaptchaSolverType type) {
+  switch (type) {
+    case CaptchaSolverType.yesCaptcha:
+      return 'YesCaptcha';
+    case CaptchaSolverType.twoCaptcha:
+      return '2Captcha';
+    case CaptchaSolverType.capMonsterCloud:
+      return 'CapMonster Cloud';
+    case CaptchaSolverType.capSolver:
+      return 'CapSolver';
+  }
+}
+
+CaptchaSolverType captchaSolverTypeFromName(String? name) {
+  return CaptchaSolverType.values.firstWhere(
+    (item) => item.name == name,
+    orElse: () => CaptchaSolverType.yesCaptcha,
+  );
+}
+
+CaptchaSolverType? tryCaptchaSolverType(String? name) {
+  if (name == null || name.isEmpty) {
+    return null;
+  }
+  for (final item in CaptchaSolverType.values) {
+    if (item.name == name) {
+      return item;
+    }
+  }
+  return null;
+}
+
+class CaptchaSolverSettings {
+  CaptchaSolverSettings({
+    this.enabled = false,
+    this.type = CaptchaSolverType.yesCaptcha,
+    String clientKey = '',
+    Map<CaptchaSolverType, String>? clientKeys,
+  }) : clientKeys = {
+         for (final item in CaptchaSolverType.values)
+           item: (clientKeys?[item] ?? '').toString(),
+       } {
+    if (clientKey.trim().isNotEmpty && this.clientKeys[type]!.trim().isEmpty) {
+      this.clientKeys[type] = clientKey;
+    }
+  }
+
+  bool enabled;
+  CaptchaSolverType type;
+  final Map<CaptchaSolverType, String> clientKeys;
+
+  String get clientKey => keyFor(type);
+
+  set clientKey(String value) => setKey(type, value);
+
+  String keyFor(CaptchaSolverType item) => (clientKeys[item] ?? '').trim();
+
+  void setKey(CaptchaSolverType item, String value) {
+    clientKeys[item] = value;
+  }
+
+  bool get configured => enabled && clientKey.isNotEmpty;
+
+  CaptchaSolverSettings copy() => CaptchaSolverSettings(
+    enabled: enabled,
+    type: type,
+    clientKeys: Map<CaptchaSolverType, String>.of(clientKeys),
+  );
+
+  Map<String, dynamic> toJson() => {
+    'enabled': enabled,
+    'type': type.name,
+    'clientKey': clientKey,
+    'clientKeys': {
+      for (final item in CaptchaSolverType.values)
+        if (keyFor(item).isNotEmpty) item.name: keyFor(item),
+    },
+  };
+
+  factory CaptchaSolverSettings.fromJson(Object? json) {
+    if (json is! Map) {
+      return CaptchaSolverSettings();
+    }
+    final record = Map<String, dynamic>.from(json);
+    final keys = <CaptchaSolverType, String>{};
+    final rawKeys = record['clientKeys'];
+    if (rawKeys is Map) {
+      for (final entry in rawKeys.entries) {
+        final type = tryCaptchaSolverType(entry.key.toString());
+        final value = entry.value?.toString() ?? '';
+        if (type != null && value.isNotEmpty) {
+          keys[type] = value;
+        }
+      }
+    }
+    return CaptchaSolverSettings(
+      enabled: record['enabled'] == true,
+      type: captchaSolverTypeFromName(record['type']?.toString()),
+      clientKey: record['clientKey']?.toString() ?? '',
+      clientKeys: keys,
+    );
+  }
+}
+
 class PrototypeSettings {
   PrototypeSettings({
     this.lowQuotaThreshold = 5,
@@ -761,7 +877,9 @@ class PrototypeSettings {
     this.darkMode = false,
     this.developerLogEnabled = false,
     NetworkProxy? networkProxy,
-  }) : networkProxy = networkProxy ?? NetworkProxy();
+    CaptchaSolverSettings? captchaSolver,
+  }) : networkProxy = networkProxy ?? NetworkProxy(),
+       captchaSolver = captchaSolver ?? CaptchaSolverSettings();
 
   double lowQuotaThreshold;
   bool notificationEnabled;
@@ -769,6 +887,7 @@ class PrototypeSettings {
   bool darkMode;
   bool developerLogEnabled;
   NetworkProxy networkProxy;
+  CaptchaSolverSettings captchaSolver;
 
   PrototypeSettings copyWith({
     double? lowQuotaThreshold,
@@ -777,6 +896,7 @@ class PrototypeSettings {
     bool? darkMode,
     bool? developerLogEnabled,
     NetworkProxy? networkProxy,
+    CaptchaSolverSettings? captchaSolver,
   }) => PrototypeSettings(
     lowQuotaThreshold: lowQuotaThreshold ?? this.lowQuotaThreshold,
     notificationEnabled: notificationEnabled ?? this.notificationEnabled,
@@ -784,6 +904,7 @@ class PrototypeSettings {
     darkMode: darkMode ?? this.darkMode,
     developerLogEnabled: developerLogEnabled ?? this.developerLogEnabled,
     networkProxy: networkProxy ?? this.networkProxy.copy(),
+    captchaSolver: captchaSolver ?? this.captchaSolver.copy(),
   );
 
   Map<String, dynamic> toJson() => {
@@ -793,6 +914,7 @@ class PrototypeSettings {
     'darkMode': darkMode,
     'developerLogEnabled': developerLogEnabled,
     'networkProxy': networkProxy.toJson(),
+    'captchaSolver': captchaSolver.toJson(),
   };
 
   factory PrototypeSettings.fromJson(Map<String, dynamic>? json) =>
@@ -804,6 +926,7 @@ class PrototypeSettings {
         darkMode: json?['darkMode'] == true,
         developerLogEnabled: json?['developerLogEnabled'] == true,
         networkProxy: NetworkProxy.fromJson(json?['networkProxy']),
+        captchaSolver: CaptchaSolverSettings.fromJson(json?['captchaSolver']),
       );
 }
 
@@ -839,6 +962,7 @@ class AccountDraft {
     List<String>? apiUrls,
     NetworkProxy? proxy,
     this.excludeFromTotalQuota = false,
+    this.issueLoginAccessToken = false,
   }) : tags = tags ?? [],
        apiUrls = apiUrls ?? [],
        proxy = proxy ?? NetworkProxy(mode: NetworkProxyMode.followGlobal);
@@ -861,6 +985,7 @@ class AccountDraft {
   List<String> apiUrls;
   NetworkProxy proxy;
   bool excludeFromTotalQuota;
+  bool issueLoginAccessToken;
 }
 
 class ApiKeyDraft {
@@ -903,6 +1028,28 @@ class TokenGroupOption {
   double? ratio;
   String ratioLabel;
   int? remoteId;
+
+  Map<String, dynamic> toJson() => {
+    'name': name,
+    'desc': desc,
+    'ratio': ratio,
+    'ratioLabel': ratioLabel,
+    'remoteId': remoteId,
+  };
+
+  factory TokenGroupOption.fromJson(Map<String, dynamic> json) =>
+      TokenGroupOption(
+        name: (json['name'] ?? '').toString(),
+        desc: (json['desc'] ?? json['name'] ?? '').toString(),
+        ratio: json['ratio'] is num ? (json['ratio'] as num).toDouble() : null,
+        ratioLabel: (json['ratioLabel'] ?? json['ratio_label'] ?? '')
+            .toString(),
+        remoteId: json['remoteId'] is num
+            ? (json['remoteId'] as num).toInt()
+            : json['remote_id'] is num
+            ? (json['remote_id'] as num).toInt()
+            : null,
+      );
 }
 
 class CheckinSummary {
@@ -921,8 +1068,6 @@ class TodayCheckinStatus {
 
 PlatformType parsePlatformType(String? value) {
   switch (value) {
-    case 'oneapi':
-      return PlatformType.oneapi;
     case 'sub2api':
       return PlatformType.sub2api;
     default:

@@ -177,7 +177,8 @@ class _DataBackupScreenState extends State<DataBackupScreen> {
     }
     final ok = await _confirm(
       title: '用这份备份覆盖当前数据？',
-      body: '${info.name}\n${info.detailLabel}\n覆盖后，现在这台手机上的账号、登录状态和密码会被换成备份里的内容。',
+      body:
+          '${info.name}\n${info.detailLabel}\n覆盖后，现在这台手机上的账号、登录状态和密码会被换成备份里的内容。',
       action: '覆盖并恢复',
       destructive: true,
     );
@@ -235,7 +236,9 @@ class _DataBackupScreenState extends State<DataBackupScreen> {
       return;
     }
     context.read<Themes>().setTheme(
-      store.settings.darkMode ? ThemeDefine.kThemeDark : ThemeDefine.kThemeLight,
+      store.settings.darkMode
+          ? ThemeDefine.kThemeDark
+          : ThemeDefine.kThemeLight,
     );
     store.notify(
       mode == VaultBackupApplyMode.replace
@@ -254,22 +257,30 @@ class _DataBackupScreenState extends State<DataBackupScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Text('导入这份备份', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+              const Text(
+                '导入这份备份',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+              ),
               const SizedBox(height: 8),
               Text(
                 snapshot.summaryLabel,
-                style: const TextStyle(color: ThemeDefine.kColorText, height: 1.45),
+                style: const TextStyle(
+                  color: ThemeDefine.kColorText,
+                  height: 1.45,
+                ),
               ),
               const SizedBox(height: 16),
               PrimaryButton(
                 label: '合并到现有数据',
-                onPressed: () => Navigator.pop(context, VaultBackupApplyMode.merge),
+                onPressed: () =>
+                    Navigator.pop(context, VaultBackupApplyMode.merge),
               ),
               const SizedBox(height: 10),
               PrimaryButton(
                 label: '覆盖当前数据',
                 outlined: true,
-                onPressed: () => Navigator.pop(context, VaultBackupApplyMode.replace),
+                onPressed: () =>
+                    Navigator.pop(context, VaultBackupApplyMode.replace),
               ),
             ],
           ),
@@ -281,7 +292,8 @@ class _DataBackupScreenState extends State<DataBackupScreen> {
   Future<String?> _askSetPassword() {
     return _askPassword(
       title: '设置备份密码',
-          body: '文件会加密保存，含登录密码、登录状态和密钥。密码至少 $minBackupPasswordLength 位，导入时要输入同一组密码。',
+      body:
+          '文件会加密保存，含登录密码、登录状态、身份和密钥。密码至少 $minBackupPasswordLength 位，导入时要输入同一组密码。',
       confirm: true,
     );
   }
@@ -303,11 +315,7 @@ class _DataBackupScreenState extends State<DataBackupScreen> {
       context: context,
       isScrollControlled: true,
       builder: (context) {
-        return _BackupPasswordSheet(
-          title: title,
-          body: body,
-          confirm: confirm,
-        );
+        return _BackupPasswordSheet(title: title, body: body, confirm: confirm);
       },
     );
   }
@@ -327,7 +335,13 @@ class _DataBackupScreenState extends State<DataBackupScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
               const SizedBox(height: 8),
               Text(body, style: const TextStyle(height: 1.5)),
               const SizedBox(height: 16),
@@ -355,104 +369,97 @@ class _DataBackupScreenState extends State<DataBackupScreen> {
     final store = context.watch<VaultStore>();
     final dark = Theme.of(context).brightness == Brightness.dark;
     final muted = dark ? ThemeDefine.kColorDarkText : ThemeDefine.kColorText;
-    final snapshot = VaultSnapshot(
-      exportedAt: DateTime.now().toUtc(),
-      accounts: store.accounts,
-      sessions: store.sessions,
-      apiKeys: store.apiKeys,
-      revealedKeys: store.revealedKeys,
-      accountPasswords: store.accountPasswords,
-      checkinLogs: store.checkinLogs,
-      usageLogs: store.usageLogs,
-      settings: store.settings,
-    );
+    final snapshot = store.captureSnapshot();
 
     return SecureScope(
       child: Scaffold(
-      appBar: const YuconAppBar(title: '数据备份', subtitle: '导入、备份和导出本机数据'),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(15, 4, 15, 24),
-        children: [
-          YuconCard(
-            padding: const EdgeInsets.fromLTRB(15, 14, 15, 14),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  snapshot.summaryLabel,
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  '含账号、登录密码、登录状态、密钥和偏好设置。备份时会加密，导入时再解密。',
-                  style: TextStyle(color: muted, fontSize: 13, height: 1.45),
-                ),
-              ],
-            ),
-          ),
-          YuconCard(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            child: Row(
-              children: [
-                _ActionCell(
-                  icon: Icons.archive_outlined,
-                  label: '备份',
-                  caption: '存到本机',
-                  busy: _busy == 'backup',
-                  onTap: _backup,
-                ),
-                _ActionCell(
-                  icon: Icons.ios_share_outlined,
-                  label: '导出',
-                  caption: '分享文件',
-                  busy: _busy == 'export',
-                  onTap: _export,
-                ),
-                _ActionCell(
-                  icon: Icons.file_download_outlined,
-                  label: '导入',
-                  caption: '从文件恢复',
-                  busy: _busy == 'import',
-                  onTap: _import,
-                ),
-              ],
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(2, 2, 2, 0),
-            child: Text(
-              '备份文件已加密，但仍请只放到你自己能控制的地方。',
-              style: TextStyle(color: muted, fontSize: 12, height: 1.4),
-            ),
-          ),
-          const SectionTitle(text: '本机备份'),
-          if (_loadingList)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 28),
-              child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
-            )
-          else if (_backups.isEmpty)
+        appBar: const YuconAppBar(title: '数据备份', subtitle: '导入、备份和导出本机数据'),
+        body: ListView(
+          padding: const EdgeInsets.fromLTRB(15, 4, 15, 24),
+          children: [
             YuconCard(
-              padding: const EdgeInsets.fromLTRB(15, 22, 15, 22),
-              child: Text(
-                '还没有本机备份。点上面的「备份」会加密存一份，换机前建议再导出一份。',
-                style: TextStyle(color: muted, fontSize: 13, height: 1.5),
-              ),
-            )
-          else
-            GroupCard(
-              children: [
-                for (final item in _backups)
-                  _BackupTile(
-                    info: item,
-                    busy: _busy == 'restore:${item.path}',
-                    onRestore: () => _restore(item),
-                    onDelete: () => _delete(item),
+              padding: const EdgeInsets.fromLTRB(15, 14, 15, 14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    snapshot.summaryLabel,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
-              ],
+                  const SizedBox(height: 6),
+                  Text(
+                    '含账号、登录密码、站点登录状态、Google / GitHub 身份、验证码服务密钥和本机偏好。备份时会加密，导入时再解密。',
+                    style: TextStyle(color: muted, fontSize: 13, height: 1.45),
+                  ),
+                ],
+              ),
             ),
-        ],
-      ),
+            YuconCard(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Row(
+                children: [
+                  _ActionCell(
+                    icon: Icons.archive_outlined,
+                    label: '备份',
+                    caption: '存到本机',
+                    busy: _busy == 'backup',
+                    onTap: _backup,
+                  ),
+                  _ActionCell(
+                    icon: Icons.ios_share_outlined,
+                    label: '导出',
+                    caption: '分享文件',
+                    busy: _busy == 'export',
+                    onTap: _export,
+                  ),
+                  _ActionCell(
+                    icon: Icons.file_download_outlined,
+                    label: '导入',
+                    caption: '从文件恢复',
+                    busy: _busy == 'import',
+                    onTap: _import,
+                  ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(2, 2, 2, 0),
+              child: Text(
+                '备份文件已加密，但仍请只放到你自己能控制的地方。',
+                style: TextStyle(color: muted, fontSize: 12, height: 1.4),
+              ),
+            ),
+            const SectionTitle(text: '本机备份'),
+            if (_loadingList)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 28),
+                child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+              )
+            else if (_backups.isEmpty)
+              YuconCard(
+                padding: const EdgeInsets.fromLTRB(15, 22, 15, 22),
+                child: Text(
+                  '还没有本机备份。点上面的「备份」会加密存一份，换机前建议再导出一份。',
+                  style: TextStyle(color: muted, fontSize: 13, height: 1.5),
+                ),
+              )
+            else
+              GroupCard(
+                children: [
+                  for (final item in _backups)
+                    _BackupTile(
+                      info: item,
+                      busy: _busy == 'restore:${item.path}',
+                      onRestore: () => _restore(item),
+                      onDelete: () => _delete(item),
+                    ),
+                ],
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -503,11 +510,20 @@ class _ActionCell extends StatelessWidget {
                     : Icon(icon, color: Colors.white, size: 18),
               ),
               const SizedBox(height: 8),
-              Text(label, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800)),
+              Text(
+                label,
+                style: const TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
               const SizedBox(height: 2),
               Text(
                 caption,
-                style: const TextStyle(color: ThemeDefine.kColorText, fontSize: 11),
+                style: const TextStyle(
+                  color: ThemeDefine.kColorText,
+                  fontSize: 11,
+                ),
               ),
             ],
           ),
@@ -554,12 +570,18 @@ class _BackupTile extends StatelessWidget {
               children: [
                 Text(
                   formatDateTime(time.toIso8601String()),
-                  style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 14,
+                  ),
                 ),
                 const SizedBox(height: 2),
                 Text(
                   info.detailLabel,
-                  style: const TextStyle(color: ThemeDefine.kColorText, fontSize: 12),
+                  style: const TextStyle(
+                    color: ThemeDefine.kColorText,
+                    fontSize: 12,
+                  ),
                 ),
               ],
             ),
@@ -658,9 +680,15 @@ class _BackupPasswordSheetState extends State<_BackupPasswordSheet> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(widget.title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+          Text(
+            widget.title,
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+          ),
           const SizedBox(height: 8),
-          Text(widget.body, style: const TextStyle(height: 1.45, color: ThemeDefine.kColorText)),
+          Text(
+            widget.body,
+            style: const TextStyle(height: 1.45, color: ThemeDefine.kColorText),
+          ),
           const SizedBox(height: 16),
           TextField(
             controller: _first,
@@ -684,7 +712,8 @@ class _BackupPasswordSheetState extends State<_BackupPasswordSheet> {
                 labelText: '再输入一次',
                 suffixIcon: secretVisibilityButton(
                   visible: _showPassword,
-                  onPressed: () => setState(() => _showPassword = !_showPassword),
+                  onPressed: () =>
+                      setState(() => _showPassword = !_showPassword),
                 ),
               ),
               onSubmitted: (_) => _submit(),

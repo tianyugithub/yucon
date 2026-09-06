@@ -47,41 +47,45 @@ const handleRefresh = async (): Promise<void> => {
       </NutButton>
     </template>
 
+    <template #header-extra>
+      <view class="accounts__sticky">
+        <view class="accounts__summary yc-card">
+          <view>
+            <text class="accounts__summary-label">已管理账号</text>
+            <text class="accounts__summary-value">{{ store.accounts.length }}</text>
+          </view>
+          <text class="accounts__summary-copy">{{ summaryText }}</text>
+        </view>
+
+        <NutSearchbar
+          v-model="store.searchTerm"
+          class="accounts__search"
+          placeholder="搜索备注、站点、用户名或类型"
+          @search="handleRefresh"
+        />
+
+        <scroll-view class="accounts__filter-scroll" scroll-x>
+          <view class="accounts__filters">
+            <button
+              v-for="filter in statusFilters"
+              :key="filter.value"
+              class="accounts__filter"
+              :class="{ 'accounts__filter--active': store.selectedAccountStatus === filter.value }"
+              @click="store.selectedAccountStatus = filter.value"
+            >
+              {{ filter.label }}
+            </button>
+          </view>
+        </scroll-view>
+
+        <view class="accounts__result-row">
+          <text>共 {{ store.filteredAccounts.length }} 个账号</text>
+          <button class="accounts__refresh" @click="handleRefresh">刷新</button>
+        </view>
+      </view>
+    </template>
+
     <view class="yc-content accounts">
-      <view class="accounts__summary yc-card">
-        <view>
-          <text class="accounts__summary-label">已管理账号</text>
-          <text class="accounts__summary-value">{{ store.accounts.length }}</text>
-        </view>
-        <text class="accounts__summary-copy">{{ summaryText }}</text>
-      </view>
-
-      <NutSearchbar
-        v-model="store.searchTerm"
-        class="accounts__search"
-        placeholder="搜索备注、站点、用户名或类型"
-        @search="handleRefresh"
-      />
-
-      <scroll-view class="accounts__filter-scroll" scroll-x>
-        <view class="accounts__filters">
-          <button
-            v-for="filter in statusFilters"
-            :key="filter.value"
-            class="accounts__filter"
-            :class="{ 'accounts__filter--active': store.selectedAccountStatus === filter.value }"
-            @click="store.selectedAccountStatus = filter.value"
-          >
-            {{ filter.label }}
-          </button>
-        </view>
-      </scroll-view>
-
-      <view class="accounts__result-row">
-        <text>共 {{ store.filteredAccounts.length }} 个账号</text>
-        <button class="accounts__refresh" @click="handleRefresh">刷新</button>
-      </view>
-
       <view v-if="store.filteredAccounts.length" class="accounts__list">
         <AccountCard
           v-for="account in store.filteredAccounts"
@@ -200,7 +204,7 @@ const handleRefresh = async (): Promise<void> => {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    margin: 28rpx 2rpx 18rpx;
+    margin: 28rpx 2rpx 0;
     color: var(--yc-muted);
     font-size: 22rpx;
   }

@@ -1,4 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:vault/app/constants/platforms.dart';
+import 'package:vault/app/identity/web_identity.dart';
 import 'package:vault/app/models/domain.dart';
 import 'package:vault/app/storage/vault_backup.dart';
 import 'package:vault/app/storage/vault_backup_crypto.dart';
@@ -41,11 +43,15 @@ VaultSnapshot _snap({
   Map<String, String>? revealedKeys,
   Map<String, String>? accountPasswords,
   PrototypeSettings? settings,
+  List<IdentityLoginAccount>? identityLogins,
+  Map<String, String>? identityLoginSelectedIds,
+  Map<String, WebIdentitySnapshot>? identitySessions,
 }) {
   return VaultSnapshot(
     exportedAt: DateTime.utc(2026, 9, 5, 5, 30),
     accounts: accounts,
-    sessions: sessions ??
+    sessions:
+        sessions ??
         [
           for (final account in accounts)
             AccountSession(
@@ -61,6 +67,26 @@ VaultSnapshot _snap({
     checkinLogs: const [],
     usageLogs: const [],
     settings: settings ?? PrototypeSettings(lowQuotaThreshold: 5),
+    identityLogins: identityLogins ?? const [],
+    identityLoginSelectedIds: identityLoginSelectedIds ?? const {},
+    identitySessions: identitySessions ?? const {},
+  );
+}
+
+WebIdentitySnapshot _googleSession({
+  required String id,
+  required String email,
+}) {
+  return WebIdentitySnapshot(
+    provider: googleIdentityProvider,
+    accountId: id,
+    email: email,
+    jars: const [
+      WebIdentityJar(
+        url: 'https://accounts.google.com/',
+        header: 'SID=abc; APISID=xyz',
+      ),
+    ],
   );
 }
 
@@ -194,5 +220,141 @@ void main() {
         ),
       ),
     );
+  });
+
+  test('maps legacy oneapi accounts to newapi', () {
+    expect(parsePlatformType('oneapi'), PlatformType.newapi);
+    expect(parsePlatformType('newapi'), PlatformType.newapi);
+    expect(parsePlatformType('sub2api'), PlatformType.sub2api);
+  });
+
+  test('platform presets use official brand icon assets', () {
+    for (final preset in platformPresets.values) {
+      expect(preset.iconAsset, startsWith('assets/platforms/'));
+      expect(preset.iconAsset, endsWith('.png'));
+    }
+  });
+
+  test('round-trips google identity logins, sessions and captcha keys', () {
+    final original = _snap(
+      accounts: [_account(id: 'a1')],
+      settings: PrototypeSettings(
+        captchaSolver: CaptchaSolverSettings(
+          enabled: true,
+          type: CaptchaSolverType.capSolver,
+          clientKeys: {
+            CaptchaSolverType.capSolver: 'cap-key',
+            CaptchaSolverType.yesCaptcha: 'yes-key',
+          },
+        ),
+      ),
+      identityLogins: const [
+        IdentityLoginAccount(
+          id: 'g1',
+          provider: googleIdentityProvider,
+          username: 'demo@gmail.com',
+          password: 'google-pass',
+        ),
+      ],
+      identityLoginSelectedIds: const {googleIdentityProvider: 'g1'},
+      identitySessions: {
+        'g1': _googleSession(id: 'g1', email: 'demo@gmail.com'),
+      },
+    );
+
+    final restored = VaultSnapshot.decode(original.encode());
+    expect(restored.version, vaultBackupVersion);
+    expect(restored.identityLogins.single.username, 'demo@gmail.com');
+    expect(restored.identityLogins.single.password, 'google-pass');
+    expect(restored.identityLoginSelectedIds[googleIdentityProvider], 'g1');
+    expect(restored.identitySessions['g1']?.email, 'demo@gmail.com');
+    expect(restored.identitySessions['g1']?.isConnected, isTrue);
+    expect(
+      restored.settings.captchaSolver.keyFor(CaptchaSolverType.capSolver),
+      'cap-key',
+    );
+    expect(
+      restored.settings.captchaSolver.keyFor(CaptchaSolverType.yesCaptcha),
+      'yes-key',
+    );
+    expect(restored.summaryLabel, contains('1 个身份账号'));
+    expect(restored.summaryLabel, contains('1 个身份登录'));
+  });
+
+  test('old backups without identity fields still decode', () {
+    final restored = VaultSnapshot.decode(
+      '{"format":"yucon-vault","version":2,"exportedAt":"2026-09-05T05:30:00.000Z","accounts":[],"sessions":[],"apiKeys":[],"revealedKeys":{},"checkinLogs":[],"usageLogs":[],"settings":{"lowQuotaThreshold":5},"accountPasswords":{}}',
+    );
+    expect(restored.identityLogins, isEmpty);
+    expect(restored.identitySessions, isEmpty);
+    expect(restored.accounts, isEmpty);
+  });
+
+  test('merge unions identity data and captcha keys', () {
+    final current = _snap(
+      accounts: [_account(id: 'a1')],
+      settings: PrototypeSettings(
+        lowQuotaThreshold: 3,
+        captchaSolver: CaptchaSolverSettings(
+          enabled: true,
+          type: CaptchaSolverType.yesCaptcha,
+          clientKeys: {CaptchaSolverType.yesCaptcha: 'yes-old'},
+        ),
+      ),
+      identityLogins: const [
+        IdentityLoginAccount(
+          id: 'g1',
+          provider: googleIdentityProvider,
+          username: 'old@gmail.com',
+          password: 'old',
+        ),
+      ],
+    );
+    final incoming = _snap(
+      accounts: [_account(id: 'a1')],
+      settings: PrototypeSettings(
+        lowQuotaThreshold: 9,
+        captchaSolver: CaptchaSolverSettings(
+          enabled: true,
+          type: CaptchaSolverType.capSolver,
+          clientKeys: {CaptchaSolverType.capSolver: 'cap-new'},
+        ),
+      ),
+      identityLogins: const [
+        IdentityLoginAccount(
+          id: 'g1',
+          provider: googleIdentityProvider,
+          username: 'new@gmail.com',
+          password: 'new',
+        ),
+        IdentityLoginAccount(
+          id: 'gh1',
+          provider: githubIdentityProvider,
+          username: 'octo',
+          password: 'hub',
+        ),
+      ],
+      identitySessions: {
+        'g1': _googleSession(id: 'g1', email: 'new@gmail.com'),
+      },
+    );
+
+    final merged = VaultSnapshot.merge(current, incoming);
+    expect(merged.settings.lowQuotaThreshold, 3);
+    expect(merged.settings.captchaSolver.type, CaptchaSolverType.yesCaptcha);
+    expect(
+      merged.settings.captchaSolver.keyFor(CaptchaSolverType.yesCaptcha),
+      'yes-old',
+    );
+    expect(
+      merged.settings.captchaSolver.keyFor(CaptchaSolverType.capSolver),
+      'cap-new',
+    );
+    expect(merged.identityLogins.map((item) => item.id).toSet(), {'g1', 'gh1'});
+    expect(
+      merged.identityLogins.firstWhere((item) => item.id == 'g1').username,
+      'new@gmail.com',
+    );
+    expect(merged.identitySessions['g1']?.email, 'new@gmail.com');
   });
 }

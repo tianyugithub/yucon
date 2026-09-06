@@ -7,10 +7,16 @@ import 'package:vault/screens/theme_define.dart';
 import 'package:vault/screens/widgets/ui.dart';
 
 class ApiAddressCopy extends StatelessWidget {
-  const ApiAddressCopy({super.key, required this.account, required this.store});
+  const ApiAddressCopy({
+    super.key,
+    required this.account,
+    required this.store,
+    this.embedded = false,
+  });
 
   final Account account;
   final VaultStore store;
+  final bool embedded;
 
   Future<void> _copy(String url) async {
     await Clipboard.setData(ClipboardData(text: url));
@@ -25,21 +31,24 @@ class ApiAddressCopy extends StatelessWidget {
     }
     final dark = Theme.of(context).brightness == Brightness.dark;
     final fill = dark ? const Color(0xFF1C1C1C) : const Color(0xFFF6F7F9);
-
+    final rows = Column(
+      children: [
+        for (var i = 0; i < urls.length; i++) ...[
+          if (i > 0) const SizedBox(height: 8),
+          _row(
+            fill: fill,
+            url: urls[i],
+            label: i == 0 ? (embedded ? '' : 'API 地址') : '其他地址',
+          ),
+        ],
+      ],
+    );
+    if (embedded) {
+      return rows;
+    }
     return YuconCard(
       padding: const EdgeInsets.fromLTRB(13, 10, 13, 10),
-      child: Column(
-        children: [
-          for (var i = 0; i < urls.length; i++) ...[
-            if (i > 0) const SizedBox(height: 8),
-            _row(
-              fill: fill,
-              url: urls[i],
-              label: i == 0 ? 'API 地址' : '其他地址',
-            ),
-          ],
-        ],
-      ),
+      child: rows,
     );
   }
 
@@ -60,22 +69,38 @@ class ApiAddressCopy extends StatelessWidget {
         child: Row(
           children: [
             Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    label,
-                    style: const TextStyle(color: ThemeDefine.kColorText, fontSize: 12),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    url,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-                  ),
-                ],
-              ),
+              child: label.isEmpty
+                  ? Text(
+                      url,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    )
+                  : Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          label,
+                          style: const TextStyle(
+                            color: ThemeDefine.kColorText,
+                            fontSize: 12,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          url,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
             ),
             const Text(
               '复制',

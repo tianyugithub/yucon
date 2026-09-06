@@ -52,6 +52,44 @@ class YuconCard extends StatelessWidget {
   }
 }
 
+class HeaderPlusAction extends StatelessWidget {
+  const HeaderPlusAction({
+    super.key,
+    required this.onPressed,
+    this.tooltip = '添加',
+  });
+
+  final VoidCallback? onPressed;
+  final String tooltip;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 15),
+      child: Tooltip(
+        message: tooltip,
+        child: SizedBox(
+          width: 31,
+          height: 31,
+          child: FilledButton(
+            onPressed: onPressed,
+            style: FilledButton.styleFrom(
+              backgroundColor: ThemeDefine.kColorPrimary,
+              foregroundColor: Colors.white,
+              padding: EdgeInsets.zero,
+              minimumSize: const Size(31, 31),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              visualDensity: VisualDensity.compact,
+              shape: const CircleBorder(),
+            ),
+            child: const Icon(Icons.add, size: 20),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class HeaderPill extends StatelessWidget {
   const HeaderPill({super.key, required this.label, this.onPressed});
 
@@ -342,6 +380,39 @@ class HeaderTextAction extends StatelessWidget {
         ),
         child: Text(label),
       ),
+    );
+  }
+}
+
+class HeaderIconAction extends StatelessWidget {
+  const HeaderIconAction({
+    super.key,
+    required this.icon,
+    required this.tooltip,
+    required this.onPressed,
+    this.busy = false,
+  });
+
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback? onPressed;
+  final bool busy;
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      onPressed: busy ? null : onPressed,
+      tooltip: tooltip,
+      padding: EdgeInsets.zero,
+      constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+      visualDensity: VisualDensity.compact,
+      icon: busy
+          ? const SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : Icon(icon, size: 22, color: ThemeDefine.kColorPrimary),
     );
   }
 }

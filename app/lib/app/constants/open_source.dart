@@ -1,5 +1,5 @@
 const kAppDisplayName = 'Yucon 钥仓';
-const kAppVersion = '0.1.2';
+const kAppVersion = '0.1.3';
 const kAppSourceUrl = 'https://github.com/tianyugithub/yucon';
 
 class OpenSourceProject {
@@ -11,6 +11,7 @@ class OpenSourceProject {
     required this.url,
     required this.mark,
     required this.color,
+    this.iconAsset,
   });
 
   final String name;
@@ -20,6 +21,7 @@ class OpenSourceProject {
   final String url;
   final String mark;
   final int color;
+  final String? iconAsset;
 
   String get displayUrl => url.replaceFirst(RegExp(r'^https://'), '');
 }
@@ -43,15 +45,7 @@ const kCompatibleGateways = <OpenSourceProject>[
     url: 'https://github.com/QuantumNous/new-api',
     mark: 'N',
     color: 0xFFFA2C19,
-  ),
-  OpenSourceProject(
-    name: 'One API',
-    owner: 'songquanpeng',
-    license: 'MIT',
-    summary: 'New API 的上游项目，提供统一的 OpenAI 兼容接口与令牌管理。',
-    url: 'https://github.com/songquanpeng/one-api',
-    mark: 'O',
-    color: 0xFF3178DF,
+    iconAsset: 'assets/platforms/newapi.png',
   ),
   OpenSourceProject(
     name: 'Sub2API',
@@ -61,6 +55,7 @@ const kCompatibleGateways = <OpenSourceProject>[
     url: 'https://github.com/Wei-Shaw/sub2api',
     mark: 'S',
     color: 0xFF0D9488,
+    iconAsset: 'assets/platforms/sub2api.png',
   ),
 ];
 

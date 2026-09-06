@@ -41,12 +41,11 @@ const metaValue = computed(() => {
   >
     <view class="account-card__head">
       <view class="account-card__identity">
-        <view
+        <image
           class="account-card__avatar"
-          :style="{ background: preset.color }"
-        >
-          {{ preset.shortLabel }}
-        </view>
+          :src="preset.iconAsset"
+          mode="aspectFill"
+        />
         <view class="account-card__name-block">
           <text class="account-card__name">{{ account.alias }}</text>
           <text class="account-card__site">{{ account.siteName }} · {{ preset.label }}</text>
@@ -126,9 +125,7 @@ const metaValue = computed(() => {
     align-items: center;
     justify-content: center;
     border-radius: 20rpx;
-    color: #fff;
-    font-size: 27rpx;
-    font-weight: 800;
+    overflow: hidden;
   }
 
   &__name-block {

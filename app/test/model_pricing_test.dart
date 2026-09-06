@@ -113,6 +113,7 @@ void main() {
     expect(offer.siteOutput, 10);
     expect(offer.effectiveInput, 6.25);
     expect(offer.effectiveOutput, 25);
+    expect(offer.sortPrice, 25);
     expect(formatYuanPrice(offer.effectiveInput), '¥6.25');
     expect(formatTopupRatioExplain(2.5), '2.5 元人民币 = 1 美元');
     expect(formatTopupRatioExplain(1), '1 元人民币 = 1 美元');
@@ -149,5 +150,111 @@ void main() {
     final filtered = catalog.filteredToModels(['kept']);
     expect(filtered.quotes.map((item) => item.modelName), ['kept']);
     expect(catalog.filteredToModels([]).quotes.length, 2);
+  });
+
+  test('parses cache ratios and enable_groups all', () {
+    final catalog = parseSitePricing({
+      'success': true,
+      'data': [
+        {
+          'model_name': 'claude-sonnet',
+          'quota_type': 0,
+          'model_ratio': 1.5,
+          'completion_ratio': 5,
+          'cache_ratio': 0.1,
+          'create_cache_ratio': 1.25,
+          'enable_groups': ['all'],
+        },
+      ],
+      'group_ratio': {'default': 1, 'vip': 0.8},
+    });
+    final quote = catalog.quotes.first;
+    expect(quoteAvailableForGroup(quote, 'default'), isTrue);
+    expect(quoteAvailableForGroup(quote, 'vip'), isTrue);
+    expect(billingGroupsForQuote(catalog, quote), ['vip', 'default']);
+
+    final price = priceForQuote(
+      quote: quote,
+      catalog: catalog,
+      group: 'default',
+      quotaPerUnit: 500000,
+    );
+    expect(price.siteInput, 3);
+    expect(price.siteOutput, 15);
+    expect(price.hasCacheRead, isTrue);
+    expect(price.hasCacheWrite, isTrue);
+    expect(price.siteCacheRead, closeTo(0.3, 0.000001));
+    expect(price.siteCacheWrite, closeTo(3.75, 0.000001));
+
+    final roundtrip = SitePricingCatalog.fromJson(catalog.toJson());
+    expect(roundtrip.quotes.first.cacheRatio, 0.1);
+    expect(roundtrip.quotes.first.createCacheRatio, 1.25);
+    expect(formatCachePriceLine(offerForQuote(
+      account: _account(),
+      quote: quote,
+      catalog: catalog,
+    )), '缓存读 ¥0.3000 · 缓存写 ¥3.75');
+  });
+
+  test('map pricing keeps token billing when both ratio and price exist', () {
+    final catalog = parseSitePricing({
+      'data': {
+        'model_ratio': {'gpt-4': 15},
+        'model_price': {'gpt-4': 0.06},
+        'completion_ratio': {'gpt-4': 2},
+        'cache_ratio': {'gpt-4': 0.5},
+        'group_ratio': {'default': 1},
+      },
+    });
+    final quote = catalog.quotes.first;
+    expect(quote.isPerCall, isFalse);
+    expect(quote.cacheRatio, 0.5);
+    final price = priceForQuote(
+      quote: quote,
+      catalog: catalog,
+      group: 'default',
+      quotaPerUnit: 500000,
+    );
+    expect(price.siteInput, 30);
+    expect(price.siteCacheRead, 15);
+  });
+
+  test('picks account group or cheapest offer', () {
+    final catalog = parseSitePricing({
+      'data': [
+        {
+          'model_name': 'gpt-4o',
+          'quota_type': 0,
+          'model_ratio': 1.25,
+          'completion_ratio': 4,
+          'enable_groups': ['default', 'vip'],
+        },
+      ],
+      'group_ratio': {'default': 1, 'vip': 0.8},
+    });
+    final quote = catalog.quotes.first;
+    final offers = offersForAccountModel(
+      account: _account(group: 'default'),
+      quote: quote,
+      catalog: catalog,
+    );
+    expect(offers.first.group, 'vip');
+    expect(
+      pickOfferForAccount(
+        account: _account(group: 'default'),
+        offers: offers,
+        useAccountGroup: false,
+      )?.group,
+      'vip',
+    );
+    expect(
+      pickOfferForAccount(
+        account: _account(group: 'default'),
+        offers: offers,
+        useAccountGroup: true,
+      )?.group,
+      'default',
+    );
+    expect(isAccountBillingGroup(_account(group: 'auto'), 'default'), isTrue);
   });
 }

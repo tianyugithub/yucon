@@ -10,8 +10,10 @@ import 'package:vault/screens/account_form_screen.dart';
 import 'package:vault/screens/key_detail_screen.dart';
 import 'package:vault/screens/key_form_screen.dart';
 import 'package:vault/screens/theme_define.dart';
+import 'package:vault/screens/widgets/account_connect_menu.dart';
 import 'package:vault/screens/widgets/api_address_copy.dart';
 import 'package:vault/screens/widgets/api_key_card.dart';
+import 'package:vault/screens/widgets/platform_brand_icon.dart';
 import 'package:vault/screens/widgets/ui.dart';
 
 class KeysScreen extends StatefulWidget {
@@ -120,22 +122,10 @@ class _KeysScreenState extends State<KeysScreen> {
                               },
                               child: Row(
                                 children: [
-                                  SquareIcon(
+                                  PlatformBrandIcon(
+                                    type: account.platformType,
                                     size: 32,
                                     radius: 10,
-                                    color: Color(
-                                      getPlatformPreset(account.platformType)
-                                          .color,
-                                    ),
-                                    child: Text(
-                                      getPlatformPreset(account.platformType)
-                                          .shortLabel,
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.w800,
-                                      ),
-                                    ),
                                   ),
                                   const SizedBox(width: 10),
                                   Expanded(
@@ -154,7 +144,7 @@ class _KeysScreenState extends State<KeysScreen> {
                                         ),
                                         const SizedBox(height: 2),
                                         Text(
-                                          '${account.siteName} · ${store.keyCountForAccount(account.id)} 个密钥',
+                                          '${getPlatformPreset(account.platformType).label} · ${store.keyCountForAccount(account.id)} 个密钥',
                                           maxLines: 1,
                                           overflow: TextOverflow.ellipsis,
                                           style: const TextStyle(
@@ -190,6 +180,170 @@ class _KeysScreenState extends State<KeysScreen> {
     );
   }
 
+  void _openAccountDetail(Account account) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => AccountDetailScreen(accountId: account.id),
+      ),
+    );
+  }
+
+  String _accountMeta(Account account) {
+    final preset = getPlatformPreset(account.platformType).label;
+    final alias = context.read<VaultStore>().displayAccountName(account).trim();
+    final user = account.username.trim();
+    if (user.isNotEmpty && user.toLowerCase() != alias.toLowerCase()) {
+      return '$preset · @$user';
+    }
+    return preset;
+  }
+
+  Widget _accountSwitcher(VaultStore store, Account selected) {
+    return Row(
+      children: [
+        Expanded(
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                for (final item in store.accounts)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: GestureDetector(
+                      onTap: () => store.setSelectedKeysAccountId(item.id),
+                      child: Container(
+                        height: 34,
+                        padding: const EdgeInsets.fromLTRB(5, 0, 10, 0),
+                        decoration: BoxDecoration(
+                          color: item.id == selected.id
+                              ? ThemeDefine.kColorSoft
+                              : Theme.of(context).cardColor,
+                          borderRadius: BorderRadius.circular(99),
+                          border: Border.all(
+                            color: item.id == selected.id
+                                ? const Color(0x29FA2C19)
+                                : Colors.transparent,
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            PlatformBrandIcon(
+                              type: item.platformType,
+                              size: 22,
+                              radius: 7,
+                            ),
+                            const SizedBox(width: 6),
+                            ConstrainedBox(
+                              constraints: const BoxConstraints(maxWidth: 118),
+                              child: Text(
+                                store.displayAccountName(item),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                  height: 1,
+                                  leadingDistribution:
+                                      TextLeadingDistribution.even,
+                                  color: item.id == selected.id
+                                      ? ThemeDefine.kColorPrimary
+                                      : ThemeDefine.kColorText,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+        if (store.accounts.length > 4) ...[
+          const SizedBox(width: 4),
+          GestureDetector(
+            onTap: () => _pickAccount(store),
+            child: Container(
+              width: 34,
+              height: 34,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: Theme.of(context).cardColor,
+                borderRadius: BorderRadius.circular(99),
+              ),
+              child: const Icon(
+                Icons.swap_horiz_rounded,
+                size: 18,
+                color: ThemeDefine.kColorText,
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _accountContextCard(VaultStore store, Account account) {
+    return YuconCard(
+      margin: EdgeInsets.zero,
+      padding: const EdgeInsets.fromLTRB(13, 12, 13, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          GestureDetector(
+            onTap: () => _openAccountDetail(account),
+            behavior: HitTestBehavior.opaque,
+            child: Row(
+              children: [
+                PlatformBrandIcon(
+                  type: account.platformType,
+                  size: 36,
+                  radius: 11,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        store.displayAccountName(account),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        _accountMeta(account),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: ThemeDefine.kColorText,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const Icon(
+                  Icons.chevron_right_rounded,
+                  size: 20,
+                  color: ThemeDefine.kColorText,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+          ApiAddressCopy(account: account, store: store, embedded: true),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (!widget.active) {
@@ -204,236 +358,146 @@ class _KeysScreenState extends State<KeysScreen> {
     final blocked = account?.status == AccountStatus.blocked;
     final canAdd = account != null && !expired && !blocked;
 
-    return SecureScope(
-      child: YuconRefresh(
-      onRefresh: () => _refresh(store),
-      child: ListView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(15, 4, 15, 24),
-        children: [
-          if (store.accounts.isEmpty) ...[
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 48),
-              child: Center(
-                child: Text(
-                  '还没有账号，添加后即可管理密钥',
-                  style: TextStyle(color: ThemeDefine.kColorText, fontSize: 13),
-                ),
+    final pageColor = Theme.of(context).scaffoldBackgroundColor;
+    final list = ListView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: EdgeInsets.fromLTRB(15, account == null ? 4 : 0, 15, 24),
+      children: [
+        if (store.accounts.isEmpty) ...[
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 48),
+            child: Center(
+              child: Text(
+                '还没有账号，添加后即可管理密钥',
+                style: TextStyle(color: ThemeDefine.kColorText, fontSize: 13),
               ),
             ),
-            PrimaryButton(
-              label: '添加账号',
-              onPressed: () {
+          ),
+          PrimaryButton(
+            label: '添加账号',
+            onPressed: () => showAccountConnectMenu(context),
+          ),
+        ] else if (account == null) ...[
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 48),
+            child: Center(
+              child: Text(
+                '选择一个账号后即可管理密钥',
+                style: TextStyle(color: ThemeDefine.kColorText, fontSize: 13),
+              ),
+            ),
+          ),
+        ] else if (keys.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 40),
+            child: Center(
+              child: Text(
+                expired
+                    ? '登录过期，暂时不能同步密钥'
+                    : blocked
+                    ? (account.dnsPolluted
+                          ? '域名解析不正常，暂时不能同步密钥'
+                          : '当前网络打不开这个网站，暂时不能同步密钥')
+                    : '这个账号还没有密钥',
+                style: const TextStyle(color: ThemeDefine.kColorText),
+              ),
+            ),
+          )
+        else
+          for (final apiKey in keys)
+            ApiKeyCard(
+              apiKey: apiKey,
+              store: store,
+              onOpen: () {
                 Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const AccountFormScreen()),
+                  MaterialPageRoute(
+                    builder: (_) => KeyDetailScreen(keyId: apiKey.id),
+                  ),
                 );
               },
             ),
-          ] else ...[
-            const Padding(
-              padding: EdgeInsets.fromLTRB(1, 2, 1, 8),
-              child: Text(
-                '账号',
-                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
-              ),
+        if (account != null) ...[
+          const SizedBox(height: 8),
+          if (canAdd)
+            PrimaryButton(label: '添加密钥', onPressed: () => _openCreate(account))
+          else if (expired)
+            PrimaryButton(
+              label: '重新登录',
+              outlined: true,
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => AccountFormScreen(accountId: account.id),
+                  ),
+                );
+              },
+            )
+          else if (blocked)
+            PrimaryButton(
+              label: '去账号详情处理',
+              outlined: true,
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => AccountDetailScreen(accountId: account.id),
+                  ),
+                );
+              },
             ),
-            YuconCard(
-              onTap: () => _pickAccount(store),
-              padding: const EdgeInsets.all(13),
-              child: Row(
-                children: [
-                  SquareIcon(
-                    size: 36,
-                    radius: 11,
-                    color: Color(
-                      getPlatformPreset(account!.platformType).color,
-                    ),
-                    child: Text(
-                      getPlatformPreset(account.platformType).shortLabel,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          store.displayAccountName(account),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          '${account.siteName} · ${getPlatformPreset(account.platformType).label}',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: ThemeDefine.kColorText,
-                            fontSize: 12,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const Text(
-                    '更换',
-                    style: TextStyle(
-                      color: ThemeDefine.kColorPrimary,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            ApiAddressCopy(account: account, store: store),
-            if (store.accounts.length > 1) ...[
-              const SizedBox(height: 2),
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
+        ],
+      ],
+    );
+
+    return SecureScope(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (account != null)
+            ColoredBox(
+              color: pageColor,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(15, 4, 15, 0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    for (final item in store.accounts)
+                    if (store.accounts.length > 1) ...[
+                      _accountSwitcher(store, account),
+                      const SizedBox(height: 10),
+                    ],
+                    _accountContextCard(store, account),
+                    if (expired)
+                      const Padding(
+                        padding: EdgeInsets.only(top: 10),
+                        child: TipBanner(text: '这个账号需要重新登录后，才能添加或同步密钥。'),
+                      ),
+                    if (blocked)
                       Padding(
-                        padding: const EdgeInsets.only(right: 6),
-                        child: GestureDetector(
-                          onTap: () => store.setSelectedKeysAccountId(item.id),
-                          child: Container(
-                            height: 32,
-                            constraints: const BoxConstraints(maxWidth: 140),
-                            padding: const EdgeInsets.symmetric(horizontal: 11),
-                            alignment: Alignment.center,
-                            decoration: BoxDecoration(
-                              color: item.id == account.id
-                                  ? ThemeDefine.kColorSoft
-                                  : Theme.of(context).cardColor,
-                              borderRadius: BorderRadius.circular(99),
-                              border: Border.all(
-                                color: item.id == account.id
-                                    ? const Color(0x29FA2C19)
-                                    : Colors.transparent,
-                              ),
-                            ),
-                            child: Text(
-                              store.displayAccountName(item),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                                height: 1,
-                                leadingDistribution:
-                                    TextLeadingDistribution.even,
-                                color: item.id == account.id
-                                    ? ThemeDefine.kColorPrimary
-                                    : ThemeDefine.kColorText,
-                              ),
-                            ),
-                          ),
+                        padding: const EdgeInsets.only(top: 10),
+                        child: TipBanner(
+                          text: account.dnsPolluted
+                              ? '不是登录过期。当前网络的域名解析不正常，请到「我的」换代理后再同步密钥。'
+                              : '不是登录过期。当前网络打不开这个网站，请到「我的」换代理后再同步密钥。',
                         ),
                       ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(1, 14, 1, 9),
+                      child: Text(
+                        '共 ${keys.length} 个密钥',
+                        style: const TextStyle(
+                          color: ThemeDefine.kColorText,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
                   ],
                 ),
               ),
-            ],
-            if (expired)
-              const Padding(
-                padding: EdgeInsets.only(top: 10),
-                child: TipBanner(text: '这个账号需要重新登录后，才能添加或同步密钥。'),
-              ),
-            if (blocked)
-              Padding(
-                padding: const EdgeInsets.only(top: 10),
-                child: TipBanner(
-                  text: account.dnsPolluted
-                      ? '不是登录过期。当前网络的域名解析不正常，请到「我的」换代理后再同步密钥。'
-                      : '不是登录过期。当前网络打不开这个网站，请到「我的」换代理后再同步密钥。',
-                ),
-              ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(1, 14, 1, 9),
-              child: Text(
-                '共 ${keys.length} 个密钥',
-                style: const TextStyle(
-                  color: ThemeDefine.kColorText,
-                  fontSize: 12,
-                ),
-              ),
             ),
-            if (keys.isEmpty)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 40),
-                child: Center(
-                  child: Text(
-                    expired
-                        ? '登录过期，暂时不能同步密钥'
-                        : blocked
-                        ? (account.dnsPolluted
-                              ? '域名解析不正常，暂时不能同步密钥'
-                              : '当前网络打不开这个网站，暂时不能同步密钥')
-                        : '这个账号还没有密钥',
-                    style: const TextStyle(color: ThemeDefine.kColorText),
-                  ),
-                ),
-              )
-            else
-              for (final apiKey in keys)
-                ApiKeyCard(
-                  apiKey: apiKey,
-                  store: store,
-                  onOpen: () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => KeyDetailScreen(keyId: apiKey.id),
-                      ),
-                    );
-                  },
-                ),
-            const SizedBox(height: 8),
-            if (canAdd)
-              PrimaryButton(
-                label: '添加密钥',
-                onPressed: () => _openCreate(account),
-              )
-            else if (expired)
-              PrimaryButton(
-                label: '重新登录',
-                outlined: true,
-                onPressed: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => AccountFormScreen(accountId: account.id),
-                    ),
-                  );
-                },
-              )
-            else if (blocked)
-              PrimaryButton(
-                label: '去账号详情处理',
-                outlined: true,
-                onPressed: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) =>
-                          AccountDetailScreen(accountId: account.id),
-                    ),
-                  );
-                },
-              ),
-          ],
+          Expanded(
+            child: YuconRefresh(onRefresh: () => _refresh(store), child: list),
+          ),
         ],
       ),
-    ),
     );
   }
 }

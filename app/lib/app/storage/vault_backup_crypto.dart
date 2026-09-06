@@ -41,6 +41,7 @@ class VaultBackupCrypto {
       }),
     );
   }
+
   static Future<String> seal(VaultSnapshot snapshot, String password) async {
     final secret = password;
     if (secret.length < minBackupPasswordLength) {
@@ -76,6 +77,8 @@ class VaultBackupCrypto {
         'keys': snapshot.apiKeys.length,
         'sessions': snapshot.sessionCount,
         'passwords': snapshot.accountPasswords.length,
+        'identityLogins': snapshot.identityLogins.length,
+        'identitySessions': snapshot.identitySessionCount,
       },
     });
   }

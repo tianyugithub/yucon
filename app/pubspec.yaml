@@ -1,7 +1,7 @@
 name: vault
 description: Yucon 钥仓
 publish_to: "none"
-version: 0.1.2+3
+version: 0.1.3+4
 
 environment:
   sdk: ^3.13.2
@@ -35,4 +35,6 @@ flutter:
     - assets/brand/yucon-lockup-light.png
     - assets/brand/yucon-lockup-dark.png
     - assets/brand/yucon-logo.png
+    - assets/platforms/
     - assets/model-brands/
+    - assets/solvers/

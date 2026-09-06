@@ -68,14 +68,29 @@ class _ProjectCard extends StatelessWidget {
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              SquareIcon(
-                size: 32,
-                radius: 9,
-                color: Color(project.color),
-                child: Text(
-                  project.mark,
-                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 14),
-                ),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(9),
+                child: project.iconAsset == null
+                    ? SquareIcon(
+                        size: 32,
+                        radius: 9,
+                        color: Color(project.color),
+                        child: Text(
+                          project.mark,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 14,
+                          ),
+                        ),
+                      )
+                    : Image.asset(
+                        project.iconAsset!,
+                        width: 32,
+                        height: 32,
+                        fit: BoxFit.cover,
+                        filterQuality: FilterQuality.high,
+                      ),
               ),
               const SizedBox(width: 10),
               Expanded(

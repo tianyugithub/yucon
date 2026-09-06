@@ -4,9 +4,9 @@
 
 每一个账号对应你自己填写的站点。登录状态保存在本机，额度、密钥和调用记录直接向该站点同步，不经过钥仓的服务器。
 
-兼容 [New API](https://github.com/QuantumNous/new-api)、[One API](https://github.com/songquanpeng/one-api)、[Sub2API](https://github.com/Wei-Shaw/sub2api) 以及与之接口一致的自建或第三方站点。钥仓是独立客户端，与上述项目及其运营方无隶属、合作或担保关系。
+兼容 [New API](https://github.com/QuantumNous/new-api)、[Sub2API](https://github.com/Wei-Shaw/sub2api) 以及与之接口一致的自建或第三方站点。钥仓是独立客户端，与上述项目及其运营方无隶属、合作或担保关系。
 
-当前版本 **0.1.2**。[下载安装包](https://github.com/tianyugithub/yucon/releases/latest)
+当前版本 **0.1.3**。[下载安装包](https://github.com/tianyugithub/yucon/releases/latest)
 
 ## 功能
 
@@ -15,10 +15,12 @@
 - 额度偏低、用尽或需要重新登录时给出状态提醒
 
 **账号**
-- 同时管理多个站点，支持用户名密码或系统访问令牌登录
+- 同时管理多个站点，支持用户名密码、系统访问令牌，或已记住的 Google / GitHub 身份登录
+- 可调用站点接口注册新账号，邮箱验证码填入即可
 - 同步余额、分组与签到
 - 可选 HTTP、HTTPS 或 SOCKS 代理
 - 可将个别账号排除出总额度统计
+- 站点开启 Cloudflare Turnstile 时，可用验证码服务自动过盾
 
 **密钥**
 - 查看、创建、停用和删除密钥
@@ -33,17 +35,17 @@
 - 查看单条调用的请求 ID、渠道与用户名等详情
 
 **数据**
-- 登录密码和会话写入系统安全存储
+- 登录密码、会话、身份登录和验证码服务密钥写入系统安全存储
 - 加密备份，可在设备之间迁移
 - 启动时检查 GitHub 发布，可在「我的」下载新版本
 
 ## 使用
 
-1. 打开「账号」，添加站点。
-2. 选择 New API、One API 或 Sub2API，填写 `https://` 站点地址。
-3. 使用该站点的用户名和密码登录；或粘贴「个人设置 → 安全设置」中的系统访问令牌，并填写同一页上的数字用户 ID。
+1. 打开「账号」，添加已有站点账号，或直接注册。
+2. 选择 New API 或 Sub2API，填写 `https://` 站点地址。
+3. 使用该站点的用户名和密码登录；或粘贴「个人设置 → 安全设置」中的系统访问令牌；也可用已记住的 Google / GitHub 身份打开站点。
 4. 不要把 `sk-` 开头的模型调用密钥当作登录令牌。
-5. 若站点开启了两步验证，请改用系统访问令牌。
+5. 若站点开启了两步验证，请改用系统访问令牌或身份登录。
 
 密钥的创建、停用和删除会写回对应站点。卸载应用或清除本机数据后，需要重新登录。
 
@@ -59,7 +61,6 @@
 | --- | --- | --- |
 | [Yucon 钥仓](https://github.com/tianyugithub/yucon) | MIT | 本客户端 |
 | [New API](https://github.com/QuantumNous/new-api) | AGPL-3.0 | 模型聚合网关 |
-| [One API](https://github.com/songquanpeng/one-api) | MIT | New API 的上游项目 |
 | [Sub2API](https://github.com/Wei-Shaw/sub2api) | LGPL-3.0 | 订阅转 API 网关 |
 | [Flutter](https://github.com/flutter/flutter) | BSD-3-Clause | 跨平台界面框架 |
 

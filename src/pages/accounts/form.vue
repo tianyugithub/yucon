@@ -2,6 +2,8 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import { fetchPublicSettings, type Sub2PublicSettings } from '@/api/sub2api'
+import { fetchSiteStatus } from '@/api/newapi'
+import { detectSitePlatform } from '@/api/site-detect'
 import AppShell from '@/components/AppShell.vue'
 import TurnstileWidget from '@/components/TurnstileWidget.vue'
 import { tagOptions } from '@/constants/demo-data'
@@ -10,7 +12,6 @@ import { NutButton, NutInput } from '@/components/nutui'
 import { usePrototypeStore } from '@/stores/usePrototypeStore'
 import type { AccountDraft, AuthMode, PlatformType } from '@/types/domain'
 import { getRouteParam } from '@/utils/route'
-import { canCaptureSiteSession, captureSiteSession } from '@/utils/site-session'
 
 const store = usePrototypeStore()
 const form = reactive<AccountDraft>(store.toAccountDraft())
@@ -23,6 +24,7 @@ const sub2Settings = ref<Sub2PublicSettings | null>(null)
 const sub2SettingsError = ref('')
 const probingSite = ref(false)
 let probeTimer: ReturnType<typeof setTimeout> | undefined
+let userPickedPlatform = false
 
 onLoad((query) => {
   const id = getRouteParam(query, 'id')
@@ -32,6 +34,7 @@ onLoad((query) => {
   const account = store.accountById(id)
   if (account) {
     Object.assign(form, store.toAccountDraft(account))
+    userPickedPlatform = true
     if (!getPlatformPreset(form.platformType).supportsAccessToken) {
       form.authMode = 'password'
     }
@@ -52,9 +55,11 @@ const selectedPreset = computed(() => getPlatformPreset(form.platformType))
 const supportsAccessToken = computed(() => selectedPreset.value.supportsAccessToken)
 const previewHost = computed(() => form.baseUrl.replace(/^https?:\/\//, '').replace(/\/$/, '') || '未填写站点地址')
 const isSub2Api = computed(() => form.platformType === 'sub2api')
-const useSiteLogin = computed(() => isSub2Api.value && canCaptureSiteSession())
+const usePasswordLogin = computed(
+  () => form.authMode === 'password' || !supportsAccessToken.value
+)
 const needsTurnstile = computed(() => {
-  if (useSiteLogin.value) {
+  if (!usePasswordLogin.value) {
     return false
   }
   if (!isSub2Api.value || !sub2Settings.value?.turnstile_enabled || !sub2Settings.value.turnstile_site_key) {
@@ -63,43 +68,100 @@ const needsTurnstile = computed(() => {
   return !isEditing.value || Boolean(form.password)
 })
 
-const probeSub2Site = async (): Promise<void> => {
-  if (!isSub2Api.value) {
+type AuthStage = 'checking' | 'captcha' | 'submitting'
+const authOverlay = ref(false)
+const authStage = ref<AuthStage>('checking')
+const authDetail = ref('')
+const authError = ref('')
+const loginSteps: Array<{ id: AuthStage; title: string; subtitle: string }> = [
+  { id: 'checking', title: '检查站点设置', subtitle: '读取人机验证等公开配置' },
+  { id: 'captcha', title: '过站点人机验证', subtitle: '完成 Cloudflare Turnstile 或由验证码服务代解' },
+  { id: 'submitting', title: '提交登录', subtitle: '用账号和密码调用站点登录接口' }
+]
+
+const dismissAuthProgress = (): void => {
+  authOverlay.value = false
+  authError.value = ''
+  authDetail.value = ''
+  authStage.value = 'checking'
+}
+
+const authStepState = (index: number): 'done' | 'active' | 'error' | 'pending' => {
+  const currentIndex = loginSteps.findIndex((item) => item.id === authStage.value)
+  if (authError.value && index === currentIndex) {
+    return 'error'
+  }
+  if (currentIndex > index) {
+    return 'done'
+  }
+  if (currentIndex === index) {
+    return 'active'
+  }
+  return 'pending'
+}
+
+const applyPlatform = (type: PlatformType): void => {
+  form.platformType = type
+  if (!getPlatformPreset(type).supportsAccessToken && form.authMode === 'access_token') {
+    form.authMode = 'password'
+    form.accessToken = ''
+  }
+}
+
+const probeSite = async (): Promise<void> => {
+  const baseUrl = form.baseUrl.trim()
+  if (!baseUrl) {
     sub2Settings.value = null
     sub2SettingsError.value = ''
     turnstileToken.value = ''
     turnstileBlocked.value = false
     return
   }
-  const baseUrl = form.baseUrl.trim()
-  if (!baseUrl) {
-    sub2Settings.value = null
-    sub2SettingsError.value = ''
-    return
-  }
   probingSite.value = true
   sub2SettingsError.value = ''
   try {
-    sub2Settings.value = await fetchPublicSettings(baseUrl)
-    if (sub2Settings.value.site_name && !form.siteName.trim()) {
-      form.siteName = sub2Settings.value.site_name
+    if (!isEditing.value && !userPickedPlatform) {
+      const detected = await detectSitePlatform(baseUrl)
+      if (detected && !userPickedPlatform) {
+        applyPlatform(detected.type)
+        if (detected.siteName && !form.siteName.trim()) {
+          form.siteName = detected.siteName
+        }
+      }
+    }
+    if (form.platformType === 'sub2api') {
+      sub2Settings.value = await fetchPublicSettings(baseUrl)
+      if (sub2Settings.value.site_name && !form.siteName.trim()) {
+        form.siteName = sub2Settings.value.site_name
+      }
+    } else {
+      sub2Settings.value = null
+      turnstileToken.value = ''
+      turnstileBlocked.value = false
+      const status = await fetchSiteStatus(baseUrl)
+      if (status.systemName && !form.siteName.trim()) {
+        form.siteName = status.systemName
+      }
     }
   } catch (error) {
-    sub2Settings.value = null
-    sub2SettingsError.value = error instanceof Error ? error.message : '无法读取站点设置'
+    if (form.platformType === 'sub2api') {
+      sub2Settings.value = null
+      sub2SettingsError.value = error instanceof Error ? error.message : '无法读取站点设置'
+    }
   } finally {
     probingSite.value = false
   }
 }
 
 watch(
-  () => [form.platformType, form.baseUrl] as const,
+  () => form.baseUrl,
   () => {
+    userPickedPlatform = false
     if (probeTimer) {
       clearTimeout(probeTimer)
     }
     probeTimer = setTimeout(() => {
-      void probeSub2Site()
+      void probeSite()
     }, 400)
   }
 )
@@ -111,11 +173,9 @@ const toggleTag = (tag: string): void => {
 }
 
 const selectPlatform = (type: PlatformType): void => {
-  form.platformType = type
-  if (!getPlatformPreset(type).supportsAccessToken && form.authMode === 'access_token') {
-    form.authMode = 'password'
-    form.accessToken = ''
-  }
+  userPickedPlatform = true
+  applyPlatform(type)
+  void probeSite()
 }
 
 const setAuthMode = (mode: AuthMode): void => {
@@ -135,11 +195,11 @@ const save = async (): Promise<void> => {
   }
   if (form.authMode === 'password') {
     const hasJwtFallback = isSub2Api.value && Boolean(form.accessToken.trim())
-    if (editingExpired.value && !useSiteLogin.value && !hasJwtFallback && !form.password) {
-      store.notify(`登录已过期，请填写${selectedPreset.value.identityLabel}和密码后重新登录`, 'warning')
+    if (editingExpired.value && !hasJwtFallback && !form.password) {
+      store.notify(`登录已过期，请填写${selectedPreset.value.identityLabel}和密码后自动登录`, 'warning')
       return
     }
-    if (!hasJwtFallback && !useSiteLogin.value && (!form.username.trim() || (!isEditing.value && !form.password))) {
+    if (!hasJwtFallback && (!form.username.trim() || (!isEditing.value && !form.password))) {
       store.notify(
         isEditing.value
           ? `请填写${selectedPreset.value.identityLabel}；若需重新登录请同时填写密码`
@@ -169,29 +229,39 @@ const save = async (): Promise<void> => {
   }
 
   saving.value = true
+  const autoLogin =
+    usePasswordLogin.value &&
+    !form.accessToken.trim() &&
+    (!isEditing.value || Boolean(form.password) || editingExpired.value)
+  if (autoLogin) {
+    authOverlay.value = true
+    authError.value = ''
+    authStage.value = 'checking'
+    authDetail.value = '读取站点公开设置'
+  }
   try {
-    if (useSiteLogin.value && !form.accessToken.trim() && (!isEditing.value || Boolean(form.password) || editingExpired.value)) {
-      capturing.value = true
-      const session = await captureSiteSession({
-        baseUrl: form.baseUrl,
-        email: form.username,
-        password: form.password
-      })
-      form.accessToken = session.accessToken
-      form.refreshToken = session.refreshToken
+    if (autoLogin) {
+      authStage.value = needsTurnstile.value ? 'captcha' : 'captcha'
+      authDetail.value = needsTurnstile.value ? '使用当前页完成的人机验证' : '该站点无需人机验证'
+      authStage.value = 'submitting'
+      authDetail.value = '提交登录并获取凭证'
     }
     const account = await store.saveAccount({
       ...form,
       turnstileToken: turnstileToken.value.trim() || undefined
     })
     store.notify(
-      editingExpired.value ? '已重新登录并同步' : isEditing.value ? '账号已重新同步' : '账号已连接并同步'
+      editingExpired.value ? '已重新登录并同步' : isEditing.value ? '账号已重新同步' : '账号已自动登录并同步'
     )
     uni.redirectTo({ url: `/pages/accounts/detail?id=${account.id}` })
   } catch (error) {
     turnstileToken.value = ''
     turnstileReset.value += 1
-    store.notify(error instanceof Error ? error.message : '连接失败', 'error')
+    const message = error instanceof Error ? error.message : '连接失败'
+    if (autoLogin) {
+      authError.value = message
+    }
+    store.notify(message, 'error')
   } finally {
     capturing.value = false
     saving.value = false
@@ -202,31 +272,26 @@ const save = async (): Promise<void> => {
 <template>
   <AppShell
     :title="pageTitle"
-    subtitle="连接已支持的中转站点账号"
+    subtitle="调用站点接口自动登录"
     show-back
     back-url="/pages/accounts/index"
   >
     <view class="yc-content account-form">
-      <view class="account-form__tip">
+      <view v-if="isEditing" class="account-form__tip">
         <view class="account-form__tip-icon">i</view>
         <text>{{
           editingExpired
-            ? useSiteLogin
-              ? '当前站点登录已过期。点下方按钮会打开官方登录页，登录成功后自动换发新令牌。'
-              : '当前站点登录已过期。请重新填写密码或访问令牌后再保存。'
-            : useSiteLogin
-              ? '连接时会打开站点官方登录页。人机验证在站点域名下完成，登录成功后自动取回令牌。'
-              : '用户名密码只用于登录，成功后只保存站点会话。额度、Key 和日志会从站点实时读取。'
+            ? '当前站点登录已过期。填写用户名和密码后会调用站点接口自动登录。'
+            : '用户名密码会调用站点接口自动登录。额度、Key 和日志会从站点实时读取。'
         }}</text>
       </view>
 
       <view class="account-form__preview yc-card">
-        <view
+        <image
           class="account-form__preview-icon"
-          :style="{ background: selectedPreset.color }"
-        >
-          {{ selectedPreset.shortLabel }}
-        </view>
+          :src="selectedPreset.iconAsset"
+          mode="aspectFill"
+        />
         <view>
           <text class="account-form__preview-title">{{ form.alias || form.username || '未命名账号' }}</text>
           <text class="account-form__preview-subtitle">{{ previewHost }} · {{ selectedPreset.label }}</text>
@@ -247,13 +312,17 @@ const save = async (): Promise<void> => {
           "
           @click="selectPlatform(preset.type)"
         >
-          <view class="account-form__type-chip-mark" :style="{ background: preset.color }">
-            {{ preset.shortLabel }}
-          </view>
+          <image
+            class="account-form__type-chip-mark"
+            :src="preset.iconAsset"
+            mode="aspectFill"
+          />
           <text>{{ preset.label }}</text>
         </button>
       </view>
-      <text class="account-form__type-hint">{{ selectedPreset.description }}</text>
+      <text class="account-form__type-hint">{{
+        isEditing ? selectedPreset.description : '填写站点地址后会自动识别 NewAPI 或 Sub2API，也可手动点选。'
+      }}</text>
 
       <view class="yc-section-title"><text>站点与备注</text></view>
       <view class="account-form__card yc-card">
@@ -296,7 +365,7 @@ const save = async (): Promise<void> => {
           >
             <view class="account-form__type-copy account-form__type-copy--solo">
               <text>用户名密码</text>
-              <text>登录后保存站点会话</text>
+              <text>调用接口自动登录</text>
             </view>
           </view>
           <view
@@ -316,7 +385,7 @@ const save = async (): Promise<void> => {
             <view class="account-form__field">
               <text class="account-form__label">
                 {{ selectedPreset.identityLabel }}
-                <text v-if="!useSiteLogin" class="account-form__required">*</text>
+                <text class="account-form__required">*</text>
               </text>
               <NutInput
                 v-model="form.username"
@@ -325,22 +394,18 @@ const save = async (): Promise<void> => {
               />
             </view>
             <view class="account-form__field account-form__field--last">
-              <text class="account-form__label">密码 <text v-if="!isEditing && !useSiteLogin" class="account-form__required">*</text></text>
-              <NutInput v-model="form.password" type="password" placeholder="密码不会保存在本地" />
+              <text class="account-form__label">密码 <text v-if="!isEditing" class="account-form__required">*</text></text>
+              <NutInput v-model="form.password" type="password" placeholder="登录成功后用于再次自动登录" />
               <text class="account-form__hint">{{
-                useSiteLogin
-                  ? '邮箱和密码会填进站点登录页，不会保存在本地。也可留空，到站点里手动输入。'
-                  : editingExpired
-                    ? '登录已过期，必须填写密码后重新登录。密码不会保存在本地。'
-                    : isEditing
-                      ? '留空则继续使用已保存的会话。'
-                      : supportsAccessToken
-                        ? '多数站点登录只下发 Cookie 会话，不必改用系统访问令牌。'
-                        : 'Sub2API 用邮箱密码登录，没有个人设置里的系统访问令牌。'
+                editingExpired
+                  ? '登录已过期，填写密码后会自动登录。'
+                  : isEditing
+                    ? '留空则继续使用已保存的会话。要重新登录时再填。'
+                    : '会用来调用站点接口自动登录。该站点若开启人机验证，请先在下方完成。'
               }}</text>
             </view>
-            <view v-if="useSiteLogin" class="account-form__field account-form__field--last">
-              <text class="account-form__hint">点「连接账号」会打开站点官方登录页。人机验证在站点上完成，登录成功后自动取回令牌并返回钥仓。</text>
+            <view class="account-form__field account-form__field--last">
+              <text class="account-form__hint">点「自动登录」会调用站点接口登录，不打开网站。</text>
             </view>
             <view v-if="isSub2Api && probingSite" class="account-form__field account-form__field--last">
               <text class="account-form__hint">正在读取站点验证设置…</text>
@@ -360,7 +425,7 @@ const save = async (): Promise<void> => {
               />
               <text class="account-form__hint">该站点开启了 Cloudflare Turnstile，完成验证后才能登录。</text>
             </view>
-            <view v-if="isSub2Api && turnstileBlocked && !useSiteLogin" class="account-form__field account-form__field--last">
+            <view v-if="isSub2Api && turnstileBlocked" class="account-form__field account-form__field--last">
               <text class="account-form__label">登录令牌</text>
               <NutInput v-model="form.accessToken" type="password" placeholder="站点登录后的 JWT，可选项" />
               <text class="account-form__hint">当前页若无法完成验证（常见于本地预览域名不匹配），可粘贴站点 Local Storage 里的 auth_token。</text>
@@ -390,15 +455,65 @@ const save = async (): Promise<void> => {
         @click="save"
       >
         {{
-          capturing
-            ? '正在打开站点登录…'
+          capturing || (saving && authOverlay && !authError)
+            ? '登录中…'
             : editingExpired
-              ? '重新登录'
+              ? '自动登录'
               : isEditing
                 ? '保存并同步'
-                : '连接账号'
+                : '自动登录'
         }}
       </NutButton>
+    </view>
+    <view v-if="authOverlay" class="site-auth-scrim">
+      <view class="site-auth-card">
+        <view class="site-auth-card__title">
+          <text>{{ authError ? '自动登录中断' : '自动登录进度' }}</text>
+        </view>
+        <view
+          v-for="(step, index) in loginSteps"
+          :key="step.id"
+          class="site-auth-step"
+        >
+          <text class="site-auth-step__mark">{{
+            authStepState(index) === 'done'
+              ? '✓'
+              : authStepState(index) === 'error'
+                ? '!'
+                : authStepState(index) === 'active'
+                  ? '…'
+                  : '○'
+          }}</text>
+          <view class="site-auth-step__copy">
+            <text class="site-auth-step__title">{{ step.title }}</text>
+            <text class="site-auth-step__sub">{{
+              authStepState(index) === 'active' && authDetail ? authDetail : step.subtitle
+            }}</text>
+          </view>
+        </view>
+        <text v-if="authError" class="site-auth-card__error">{{ authError }}</text>
+        <NutButton
+          v-if="authError"
+          class="site-auth-card__retry"
+          block
+          shape="round"
+          custom-color="#fa2c19"
+          @click="save"
+        >
+          重试
+        </NutButton>
+        <NutButton
+          v-if="authError"
+          class="site-auth-card__close"
+          block
+          plain
+          shape="round"
+          custom-color="#fa2c19"
+          @click="dismissAuthProgress"
+        >
+          关闭
+        </NutButton>
+      </view>
     </view>
   </AppShell>
 </template>
@@ -453,7 +568,7 @@ const save = async (): Promise<void> => {
     flex: none;
     margin-right: 16rpx;
     border-radius: 21rpx;
-    font-size: 28rpx;
+    overflow: hidden;
   }
 
   &__preview-title,
@@ -527,10 +642,8 @@ const save = async (): Promise<void> => {
     flex: none;
     align-items: center;
     justify-content: center;
-    border-radius: 50%;
-    color: #fff;
-    font-size: 18rpx;
-    font-weight: 800;
+    border-radius: 12rpx;
+    overflow: hidden;
   }
 
   &__type-hint {
@@ -723,4 +836,89 @@ const save = async (): Promise<void> => {
     }
   }
 }
+
+.site-auth-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 48rpx;
+  background: rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(18px);
+}
+
+.site-auth-card {
+  width: 100%;
+  max-width: 640rpx;
+  padding: 32rpx;
+  border-radius: 36rpx;
+  border: 1rpx solid rgba(255, 255, 255, 0.28);
+  background: color-mix(in srgb, var(--yc-surface) 84%, transparent);
+  backdrop-filter: blur(22px);
+  box-shadow: 0 24rpx 80rpx rgba(0, 0, 0, 0.18);
+
+  &__title {
+    margin-bottom: 18rpx;
+    color: var(--yc-ink);
+    font-size: 30rpx;
+    font-weight: 800;
+  }
+
+  &__error {
+    display: block;
+    margin-top: 16rpx;
+    padding: 16rpx;
+    border-radius: 16rpx;
+    background: rgba(190, 38, 48, 0.08);
+    color: #be2630;
+    font-size: 22rpx;
+    line-height: 1.45;
+  }
+
+  &__retry {
+    margin-top: 24rpx;
+  }
+
+  &__close {
+    margin-top: 12rpx;
+  }
+}
+
+.site-auth-step {
+  display: flex;
+  gap: 16rpx;
+  padding: 10rpx 0;
+
+  &__mark {
+    width: 36rpx;
+    color: var(--yc-muted);
+    font-size: 24rpx;
+    font-weight: 800;
+    line-height: 1.4;
+    text-align: center;
+  }
+
+  &__copy {
+    flex: 1;
+    min-width: 0;
+  }
+
+  &__title {
+    display: block;
+    color: var(--yc-ink);
+    font-size: 26rpx;
+    font-weight: 700;
+  }
+
+  &__sub {
+    display: block;
+    margin-top: 4rpx;
+    color: var(--yc-muted);
+    font-size: 22rpx;
+    line-height: 1.4;
+  }
+}
+
 </style>

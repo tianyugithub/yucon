@@ -1,43 +1,13 @@
 import 'dart:ui';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:vault/screens/theme_define.dart';
 import 'package:vault/screens/widgets/ui.dart';
 
-const _privacyChannel = MethodChannel('cc.yucon.vault/proxy');
-
 class ScreenSecure {
-  static int _holds = 0;
+  static Future<void> retain() async {}
 
-  static Future<void> retain() async {
-    _holds += 1;
-    if (_holds == 1) {
-      await _setNative(true);
-    }
-  }
-
-  static Future<void> release() async {
-    if (_holds == 0) {
-      return;
-    }
-    _holds -= 1;
-    if (_holds == 0) {
-      await _setNative(false);
-    }
-  }
-
-  static Future<void> _setNative(bool enable) async {
-    if (kIsWeb) {
-      return;
-    }
-    try {
-      await _privacyChannel.invokeMethod<void>('setSecureFlag', {
-        'enable': enable,
-      });
-    } catch (_) {}
-  }
+  static Future<void> release() async {}
 }
 
 class SecureScope extends StatefulWidget {

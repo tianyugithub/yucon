@@ -3,8 +3,12 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:vault/app/api/http.dart';
+import 'package:vault/app/identity/web_identity.dart';
+import 'package:vault/app/identity/web_identity_io.dart';
 import 'package:vault/app/models/domain.dart';
+import 'package:vault/app/modules/vault_store.dart';
 import 'package:vault/app/privacy/screen_privacy.dart';
 import 'package:vault/screens/theme_define.dart';
 import 'package:vault/screens/widgets/ui.dart';
@@ -69,6 +73,9 @@ class SiteLoginScreen extends StatefulWidget {
     this.startUrl = '',
     this.email = '',
     this.password = '',
+    this.nickname = '',
+    this.oauthProvider = '',
+    this.resetSiteSession = false,
   });
 
   final String loginUrl;
@@ -76,6 +83,9 @@ class SiteLoginScreen extends StatefulWidget {
   final PlatformType kind;
   final String email;
   final String password;
+  final String nickname;
+  final String oauthProvider;
+  final bool resetSiteSession;
 
   @override
   State<SiteLoginScreen> createState() => _SiteLoginScreenState();
@@ -89,6 +99,23 @@ class _SiteLoginScreenState extends State<SiteLoginScreen> {
   bool _primed = false;
   bool _networkBlocked = false;
   bool _looksLoggedIn = false;
+  bool _oauthClicked = false;
+  int _oauthMisses = 0;
+  int _oauthAttempts = 0;
+  int _oauthUrlIndex = 0;
+  DateTime? _oauthClickAt;
+  bool _oauthBusy = false;
+  bool _assistBusy = false;
+
+  String get _siteBase {
+    final url = widget.loginUrl;
+    for (final suffix in ['/sign-in', '/login', '/register']) {
+      if (url.endsWith(suffix)) {
+        return url.substring(0, url.length - suffix.length);
+      }
+    }
+    return Uri.tryParse(url)?.origin ?? url;
+  }
 
   bool get _isSub2 => widget.kind == PlatformType.sub2api;
 
@@ -134,11 +161,16 @@ class _SiteLoginScreenState extends State<SiteLoginScreen> {
         unawaited(_acceptRawSession(message.message));
       },
     );
+    await WidgetsBinding.instance.endOfFrame;
+    await prepareAuthWebView(_controller, _cookieManager);
     await _controller.loadRequest(Uri.parse(_initialUrl));
     if (!mounted) {
       return;
     }
-    _poller = Timer.periodic(const Duration(milliseconds: 400), (_) => unawaited(_poll()));
+    _poller = Timer.periodic(
+      const Duration(milliseconds: 400),
+      (_) => unawaited(_poll()),
+    );
   }
 
   String get _initialUrl {
@@ -163,12 +195,32 @@ class _SiteLoginScreenState extends State<SiteLoginScreen> {
       return;
     }
     if (!_primed) {
+      Object? primed;
+      try {
+        primed = await _controller.runJavaScriptReturningResult(_primeScript());
+      } catch (_) {
+        try {
+          await _controller.runJavaScript(_primeScript());
+        } catch (_) {}
+      }
       _primed = true;
-      await _controller.runJavaScript(_primeScript());
+      final text = primed?.toString().toLowerCase() ?? '';
+      if (text.contains('reload')) {
+        _oauthClicked = false;
+        _oauthMisses = 0;
+        _oauthAttempts = 0;
+        _oauthUrlIndex = 0;
+        _oauthClickAt = null;
+        return;
+      }
     }
-    if (_isAuthPath(current) && !_looksLoggedIn) {
-      await _controller.runJavaScript(_assistScript());
+    if (_isAuthPath(current) &&
+        !_looksLoggedIn &&
+        widget.oauthProvider.isEmpty &&
+        !_isEmailVerifyPath(current)) {
+      await _runAssist();
     }
+    await _tryStartOAuth(current);
     await _controller.runJavaScript(_watchScript());
     await _pollSession();
   }
@@ -182,7 +234,84 @@ class _SiteLoginScreenState extends State<SiteLoginScreen> {
     }
     await _controller.runJavaScript(_watchScript());
     await Future<void>.delayed(const Duration(milliseconds: 200));
+    await _tryStartOAuth(url);
     await _pollSession();
+  }
+
+  Future<void> _tryStartOAuth(String url) async {
+    final provider = widget.oauthProvider.trim();
+    if (provider.isEmpty ||
+        !_primed ||
+        _finished ||
+        _networkBlocked ||
+        _looksLoggedIn ||
+        _oauthClicked) {
+      return;
+    }
+    if (looksLikeIdentityHost(url, provider)) {
+      _oauthClicked = true;
+      return;
+    }
+    if (_isOAuthStartPath(url) || _oauthBusy) {
+      return;
+    }
+    _oauthBusy = true;
+    try {
+      await _startOAuthOnce(provider);
+    } finally {
+      _oauthBusy = false;
+    }
+  }
+
+  Future<void> _startOAuthOnce(String provider) async {
+    final clickedAt = _oauthClickAt;
+    if (clickedAt != null &&
+        DateTime.now().difference(clickedAt) < const Duration(seconds: 3)) {
+      return;
+    }
+    var result = '';
+    try {
+      final raw = await _controller.runJavaScriptReturningResult(
+        siteOAuthClickScript(provider),
+      );
+      result = raw
+          .toString()
+          .trim()
+          .replaceAll('"', '')
+          .replaceAll("'", '')
+          .toLowerCase();
+    } catch (_) {}
+    if (result == '1' || result == 'true') {
+      _oauthClickAt = DateTime.now();
+      _oauthAttempts += 1;
+      if (_oauthAttempts < 2) {
+        return;
+      }
+    } else if (result == 'wait') {
+      _oauthMisses += 1;
+      if (_oauthMisses < (_isSub2 ? 18 : 12)) {
+        return;
+      }
+    } else {
+      _oauthMisses += 1;
+      if (_oauthMisses < (_isSub2 ? 18 : 12)) {
+        return;
+      }
+    }
+    final urls = siteOAuthStartUrls(_siteBase, provider, sub2: _isSub2);
+    if (urls.isEmpty || _oauthUrlIndex >= urls.length) {
+      return;
+    }
+    final start = urls[_oauthUrlIndex];
+    _oauthUrlIndex += 1;
+    _oauthClickAt = DateTime.now();
+    try {
+      await _controller.runJavaScript(siteOAuthNavigateScript(start));
+    } catch (_) {
+      try {
+        await _controller.loadRequest(Uri.parse(start));
+      } catch (_) {}
+    }
   }
 
   @override
@@ -197,7 +326,8 @@ class _SiteLoginScreenState extends State<SiteLoginScreen> {
     }
     final platform = _cookieManager.platform;
     final controller = _controller.platform;
-    if (platform is AndroidWebViewCookieManager && controller is AndroidWebViewController) {
+    if (platform is AndroidWebViewCookieManager &&
+        controller is AndroidWebViewController) {
       try {
         await platform.setAcceptThirdPartyCookies(controller, true);
       } catch (_) {}
@@ -211,12 +341,28 @@ class _SiteLoginScreenState extends State<SiteLoginScreen> {
         path.contains('/signin') ||
         path.contains('/sign-up') ||
         path.contains('/register') ||
+        path.contains('/email-verify') ||
+        path.contains('/verify-email') ||
         path.contains('/reset') ||
         path.contains('/forgot') ||
         path.contains('/oauth') ||
         path.contains('/2fa') ||
         path.contains('/mfa') ||
         path.contains('/turnstile');
+  }
+
+  bool _isOAuthStartPath(String url) {
+    final path = (Uri.tryParse(url)?.path ?? url).toLowerCase();
+    return path.contains('/auth/oauth/') ||
+        path.contains('/oauth/github') ||
+        path.contains('/oauth/google') ||
+        path.contains('/oauth/oidc') ||
+        path.contains('/api/oauth/');
+  }
+
+  bool _isEmailVerifyPath(String url) {
+    final path = (Uri.tryParse(url)?.path ?? url).toLowerCase();
+    return path.contains('/email-verify') || path.contains('/verify-email');
   }
 
   bool _looksLikeSessionCookie(String cookies) {
@@ -228,7 +374,9 @@ class _SiteLoginScreenState extends State<SiteLoginScreen> {
 
   bool _isBearerToken(String token) {
     final value = token.trim();
-    if (value.isEmpty || value.startsWith(cookieAuthPrefix) || value.startsWith('sk-')) {
+    if (value.isEmpty ||
+        value.startsWith(cookieAuthPrefix) ||
+        value.startsWith('sk-')) {
       return false;
     }
     return value.length >= 16;
@@ -278,7 +426,9 @@ class _SiteLoginScreenState extends State<SiteLoginScreen> {
       }
     } catch (_) {}
     try {
-      final raw = await _controller.runJavaScriptReturningResult(_blockCheckScript());
+      final raw = await _controller.runJavaScriptReturningResult(
+        _blockCheckScript(),
+      );
       if (_jsTruthy(raw)) {
         _markNetworkBlocked();
       }
@@ -290,7 +440,11 @@ class _SiteLoginScreenState extends State<SiteLoginScreen> {
       return true;
     }
     final text = value?.toString().toLowerCase().trim() ?? '';
-    return text == 'true' || text == '"true"' || text == '1' || text == '"1"' || text == '1.0';
+    return text == 'true' ||
+        text == '"true"' ||
+        text == '1' ||
+        text == '"1"' ||
+        text == '1.0';
   }
 
   void _markNetworkBlocked() {
@@ -338,12 +492,11 @@ class _SiteLoginScreenState extends State<SiteLoginScreen> {
       return;
     }
     final url = await _controller.currentUrl() ?? '';
-    if (!_isAuthPath(url) && cookies.isNotEmpty && _looksLikeSessionCookie(cookies)) {
+    if (!_isAuthPath(url) &&
+        cookies.isNotEmpty &&
+        _looksLikeSessionCookie(cookies)) {
       _finish(
-        SiteSession(
-          accessToken: asCookieAuth(cookies),
-          cookies: cookies,
-        ),
+        SiteSession(accessToken: asCookieAuth(cookies), cookies: cookies),
       );
       return;
     }
@@ -366,9 +519,13 @@ class _SiteLoginScreenState extends State<SiteLoginScreen> {
     if (_finished || _networkBlocked || !mounted) {
       return;
     }
-    if (_isAuthPath(url ?? widget.loginUrl) && !_looksLoggedIn) {
-      await _controller.runJavaScript(_assistScript());
+    if (_isAuthPath(url ?? widget.loginUrl) &&
+        !_looksLoggedIn &&
+        widget.oauthProvider.isEmpty &&
+        !_isEmailVerifyPath(url ?? widget.loginUrl)) {
+      await _runAssist();
     }
+    await _tryStartOAuth(url ?? widget.loginUrl);
     await _controller.runJavaScript(_watchScript());
     await _pollSession();
   }
@@ -378,7 +535,9 @@ class _SiteLoginScreenState extends State<SiteLoginScreen> {
       return;
     }
     try {
-      final raw = await _controller.runJavaScriptReturningResult(_sessionScript());
+      final raw = await _controller.runJavaScriptReturningResult(
+        _sessionScript(),
+      );
       await _acceptRawSession(raw);
     } catch (_) {}
   }
@@ -386,6 +545,9 @@ class _SiteLoginScreenState extends State<SiteLoginScreen> {
   Future<void> _acceptRawSession(Object? raw) async {
     final parsed = _parseSession(raw);
     if (parsed == null || _finished || _networkBlocked || !mounted) {
+      return;
+    }
+    if (_isSub2 && !_primed) {
       return;
     }
     if ((parsed.loggedIn || parsed.pageLoggedIn) && !_looksLoggedIn) {
@@ -405,15 +567,23 @@ class _SiteLoginScreenState extends State<SiteLoginScreen> {
       return;
     }
     final url = await _controller.currentUrl() ?? '';
-    final bearer = _isBearerToken(parsed.session.accessToken) ? parsed.session.accessToken.trim() : '';
+    final bearer = _isBearerToken(parsed.session.accessToken)
+        ? parsed.session.accessToken.trim()
+        : '';
     if (bearer.isNotEmpty) {
       _finish(parsed.session.copyWith(accessToken: bearer, cookies: cookies));
       return;
     }
-    if (_isAuthPath(url)) {
+    if (!_looksLikeSessionCookie(cookies)) {
       return;
     }
-    if (parsed.session.userId.isEmpty || !_looksLikeSessionCookie(cookies)) {
+    if (parsed.session.userId.isEmpty &&
+        !parsed.loggedIn &&
+        !parsed.pageLoggedIn &&
+        !_looksLoggedIn) {
+      return;
+    }
+    if (_isAuthPath(url) && parsed.session.userId.isEmpty && !_looksLoggedIn) {
       return;
     }
     _finish(
@@ -453,10 +623,12 @@ class _SiteLoginScreenState extends State<SiteLoginScreen> {
     var cookies = decoded['cookies']?.toString() ?? '';
     var userId = decoded['userId']?.toString() ?? '';
     var username = decoded['username']?.toString() ?? '';
-    final loggedIn = decoded['loggedIn'] == true ||
+    final loggedIn =
+        decoded['loggedIn'] == true ||
         decoded['loggedIn'] == 1 ||
         decoded['loggedIn']?.toString() == 'true';
-    final pageLoggedIn = decoded['pageLoggedIn'] == true ||
+    final pageLoggedIn =
+        decoded['pageLoggedIn'] == true ||
         decoded['pageLoggedIn'] == 1 ||
         decoded['pageLoggedIn']?.toString() == 'true';
     if (accessToken == 'null' || accessToken == 'undefined') {
@@ -471,7 +643,11 @@ class _SiteLoginScreenState extends State<SiteLoginScreen> {
     if (_isSub2 && accessToken.isEmpty) {
       return null;
     }
-    if (!_isSub2 && accessToken.isEmpty && userId.isEmpty && !loggedIn && !pageLoggedIn) {
+    if (!_isSub2 &&
+        accessToken.isEmpty &&
+        userId.isEmpty &&
+        !loggedIn &&
+        !pageLoggedIn) {
       return null;
     }
     return _ParsedCapture(
@@ -497,6 +673,23 @@ class _SiteLoginScreenState extends State<SiteLoginScreen> {
       return;
     }
     Navigator.of(context).pop(session);
+  }
+
+  Future<void> _runAssist() async {
+    if (_finished || _networkBlocked || !mounted || _assistBusy) {
+      return;
+    }
+    _assistBusy = true;
+    try {
+      try {
+        await _controller.runJavaScriptReturningResult(_assistScript());
+      } catch (_) {
+        await _controller.runJavaScript(_assistScript());
+      }
+    } catch (_) {
+    } finally {
+      _assistBusy = false;
+    }
   }
 
   String _blockCheckScript() {
@@ -537,20 +730,50 @@ class _SiteLoginScreenState extends State<SiteLoginScreen> {
   }
 
   String _primeScript() {
+    final start = jsonEncode(
+      widget.startUrl.trim().isEmpty ? widget.loginUrl : widget.startUrl,
+    );
+    if (widget.resetSiteSession) {
+      return '(function(){'
+          'function wipe(){'
+          'try{localStorage.clear();}catch(e){}'
+          'try{sessionStorage.clear();}catch(e){}'
+          'try{'
+          'var cookies=document.cookie?document.cookie.split(";"):[];'
+          'for(var i=0;i<cookies.length;i++){'
+          'var n=String(cookies[i].split("=")[0]||"").trim();'
+          'if(!n)continue;'
+          'document.cookie=n+"=; Max-Age=-1; Path=/";'
+          'document.cookie=n+"=; Max-Age=-1; Path=/; Secure";'
+          '}'
+          '}catch(e){}'
+          '}'
+          'wipe();'
+          'var path=String(location.pathname||"").toLowerCase();'
+          'var onAuth=path.indexOf("/login")>=0||path.indexOf("/sign-in")>=0||path.indexOf("/signin")>=0||path.indexOf("/register")>=0;'
+          'if(!onAuth){try{location.replace($start);}catch(e){} return "reload";}'
+          'return "ok";'
+          '})();';
+    }
     if (_isSub2) {
       return '(function(){'
           'var wanted=${jsonEncode(widget.email)};'
+          'var oauth=${jsonEncode(widget.oauthProvider.trim().isNotEmpty)};'
           'function readUser(){try{return JSON.parse(localStorage.getItem("auth_user")||"null")}catch(e){return null}}'
-          'var token=localStorage.getItem("auth_token");'
-          'var user=readUser();'
-          'var current=user&&user.email?String(user.email):"";'
-          'if(token&&wanted&&current&&current.toLowerCase()!==wanted.toLowerCase()){'
+          'function wipe(){'
           'localStorage.removeItem("auth_token");'
           'localStorage.removeItem("refresh_token");'
           'localStorage.removeItem("auth_user");'
           'localStorage.removeItem("token_expires_at");'
-          'location.replace(${jsonEncode(widget.loginUrl)});'
           '}'
+          'var token=localStorage.getItem("auth_token");'
+          'var user=readUser();'
+          'var current=user&&user.email?String(user.email):"";'
+          'if(oauth&&token){wipe();location.replace($start);return "reload";}'
+          'if(token&&wanted&&current&&current.toLowerCase()!==wanted.toLowerCase()){'
+          'wipe();location.replace($start);return "reload";'
+          '}'
+          'return "ok";'
           '})();';
     }
     return '(function(){})();';
@@ -660,7 +883,7 @@ class _SiteLoginScreenState extends State<SiteLoginScreen> {
   }
   function looksLoggedInPage(){
     var path=(location.pathname||"").toLowerCase();
-    if(/\/(login|sign-in|signin|sign-up|signup|register|reset|forgot|oauth|2fa|mfa|turnstile)(\/|$)/.test(path))return false;
+    if(/\/(login|sign-in|signin|sign-up|signup|register|email-verify|verify-email|reset|forgot|oauth|2fa|mfa|turnstile)(\/|$)/.test(path))return false;
     if(/\/(console|panel|dashboard|app|admin|tokens?|channel|logs?|topup|wallet|personal|settings?|playground)(\/|$)/.test(path))return true;
     var password=document.querySelector("input[type=password]");
     if(password)return false;
@@ -884,7 +1107,10 @@ class _SiteLoginScreenState extends State<SiteLoginScreen> {
         'setValue(userInput,cred.user);'
         'setValue(passwordInput,cred.password);'
         'var turnstile=document.querySelector("textarea[name=cf-turnstile-response],input[name=cf-turnstile-response]");'
-        'if(turnstile&&turnstile.value&&cred.user&&cred.password){'
+        'var token=turnstile?String(turnstile.value||"").trim():"";'
+        'var hasCf=!!(document.querySelector(".cf-turnstile,iframe[src*=\'challenges.cloudflare.com\'],iframe[src*=\'turnstile\'],script[src*=\'turnstile\']")||(turnstile&&!token));'
+        'if(hasCf&&token.length<20)return;'
+        'if(cred.user&&cred.password&&(!hasCf||token.length>=20)){'
         'var button=document.querySelector("form button[type=submit],form button");'
         'if(button&&!button.disabled&&!button.dataset.ycClicked){button.dataset.ycClicked="1";button.click();}'
         '}'
@@ -895,58 +1121,72 @@ class _SiteLoginScreenState extends State<SiteLoginScreen> {
   Widget build(BuildContext context) {
     return SecureScope(
       child: PopScope(
-      canPop: !_networkBlocked,
-      onPopInvokedWithResult: (didPop, result) {
-        if (didPop || _finished) {
-          return;
-        }
-        _leaveBlocked();
-      },
-      child: Scaffold(
-        appBar: YuconAppBar(
-          title: '站点登录',
-          subtitle: _networkBlocked
-              ? '这个网站不支持当前网络访问'
-              : (_looksLoggedIn ? '已检测到登录，正在自动返回' : '已登录会自动返回，未登录则在页面里完成登录'),
-          actions: [
-            if (_looksLoggedIn && !_networkBlocked)
-              HeaderTextAction(label: '使用当前登录', onPressed: () => unawaited(_useCurrentLogin())),
-          ],
-        ),
-        body: Stack(
-          children: [
-            WebViewWidget(controller: _controller),
-            if (_networkBlocked)
-              ColoredBox(
-                color: ThemeDefine.kColorPage,
-                child: ListView(
-                  padding: const EdgeInsets.fromLTRB(15, 16, 15, 24),
-                  children: [
-                    YuconCard(
-                      padding: const EdgeInsets.fromLTRB(16, 18, 16, 16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            '$_siteHost 不支持当前网络访问',
-                            style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800, height: 1.3),
-                          ),
-                          const SizedBox(height: 8),
-                          const Text(
-                            '页面里的 Sorry, you have been blocked 表示这个网站不允许你现在所用的网络打开它，不是账号填错，也不是登录失败。请到「我的」换一个可用代理后再连。',
-                            style: TextStyle(color: ThemeDefine.kColorText, fontSize: 13, height: 1.5),
-                          ),
-                          const SizedBox(height: 16),
-                          PrimaryButton(label: '返回去配置代理', onPressed: _leaveBlocked),
-                        ],
-                      ),
-                    ),
-                  ],
+        canPop: !_networkBlocked,
+        onPopInvokedWithResult: (didPop, result) {
+          if (didPop || _finished) {
+            return;
+          }
+          _leaveBlocked();
+        },
+        child: Scaffold(
+          appBar: YuconAppBar(
+            title: '站点登录',
+            subtitle: _networkBlocked
+                ? '这个网站不支持当前网络访问'
+                : (_looksLoggedIn ? '已检测到登录，正在自动返回' : '已登录会自动返回，未登录则在页面里完成登录'),
+            actions: [
+              if (_looksLoggedIn && !_networkBlocked)
+                HeaderTextAction(
+                  label: '使用当前登录',
+                  onPressed: () => unawaited(_useCurrentLogin()),
                 ),
-              ),
-          ],
+            ],
+          ),
+          body: Stack(
+            children: [
+              authWebView(_controller),
+              if (_networkBlocked)
+                ColoredBox(
+                  color: ThemeDefine.kColorPage,
+                  child: ListView(
+                    padding: const EdgeInsets.fromLTRB(15, 16, 15, 24),
+                    children: [
+                      YuconCard(
+                        padding: const EdgeInsets.fromLTRB(16, 18, 16, 16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '$_siteHost 不支持当前网络访问',
+                              style: const TextStyle(
+                                fontSize: 17,
+                                fontWeight: FontWeight.w800,
+                                height: 1.3,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            const Text(
+                              '页面里的 Sorry, you have been blocked 表示这个网站不允许你现在所用的网络打开它，不是账号填错，也不是登录失败。请到「我的」换一个可用代理后再连。',
+                              style: TextStyle(
+                                color: ThemeDefine.kColorText,
+                                fontSize: 13,
+                                height: 1.5,
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            PrimaryButton(
+                              label: '返回去配置代理',
+                              onPressed: _leaveBlocked,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
         ),
-      ),
       ),
     );
   }
@@ -958,16 +1198,58 @@ Future<SiteSession> captureSiteSession(
   PlatformType platformType = PlatformType.newapi,
   String email = '',
   String password = '',
+  String nickname = '',
   NetworkProxy? proxy,
+  String? googleAccountId,
+  String? githubAccountId,
+  bool resetSiteSession = false,
 }) async {
+  final oauthProvider = (googleAccountId ?? '').trim().isNotEmpty
+      ? googleIdentityProvider
+      : ((githubAccountId ?? '').trim().isNotEmpty
+            ? githubIdentityProvider
+            : '');
   await applyWebViewProxy(proxy);
   try {
+    if (resetSiteSession) {
+      try {
+        await clearSiteWebViewState(baseUrl);
+      } catch (_) {}
+    }
+    if (context.mounted) {
+      try {
+        final store = context.read<VaultStore>();
+        if ((googleAccountId ?? '').trim().isNotEmpty) {
+          await store.selectIdentityLogin(
+            googleIdentityProvider,
+            googleAccountId!.trim(),
+          );
+          await scrubIdentityWebViewCookies(googleIdentityProvider);
+          await restoreConnectedIdentityCookies([store.googleIdentity]);
+        } else if ((githubAccountId ?? '').trim().isNotEmpty) {
+          await store.selectIdentityLogin(
+            githubIdentityProvider,
+            githubAccountId!.trim(),
+          );
+          await scrubIdentityWebViewCookies(githubIdentityProvider);
+          await restoreConnectedIdentityCookies([store.githubIdentity]);
+        } else {
+          await scrubIdentityWebViewCookies(googleIdentityProvider);
+          await scrubIdentityWebViewCookies(githubIdentityProvider);
+        }
+      } catch (_) {}
+    }
     if (!context.mounted) {
       throw ApiError('已取消登录');
     }
     final base = normalizeBaseUrl(baseUrl);
-    final loginUrl = '$base/sign-in';
-    final startUrl = platformType == PlatformType.sub2api ? loginUrl : '$base/';
+    final loginUrl = platformType == PlatformType.sub2api
+        ? '$base/login'
+        : '$base/sign-in';
+    final startUrl =
+        platformType == PlatformType.sub2api || oauthProvider.isNotEmpty
+        ? loginUrl
+        : '$base/';
     final result = await Navigator.of(context).push<Object>(
       MaterialPageRoute(
         builder: (_) => SiteLoginScreen(
@@ -976,6 +1258,9 @@ Future<SiteSession> captureSiteSession(
           kind: platformType,
           email: email,
           password: password,
+          nickname: nickname,
+          oauthProvider: oauthProvider,
+          resetSiteSession: resetSiteSession,
         ),
       ),
     );

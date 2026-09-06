@@ -71,7 +71,6 @@ import type {
   UsageLog
 } from '@/types/domain'
 import { ApiError, isAuthExpiredError, normalizeBaseUrl } from '@/utils/http'
-import { canCaptureSiteSession, captureSiteSession } from '@/utils/site-session'
 import {
   dateInputToUnix,
   quotaToMoney,
@@ -980,27 +979,6 @@ export const usePrototypeStore = defineStore('prototype', () => {
     const account = accountById(accountId)
     if (!account) {
       throw new ApiError('账号不存在')
-    }
-    if (account.platformType === 'sub2api' && canCaptureSiteSession()) {
-      const captured = await captureSiteSession({
-        baseUrl: account.baseUrl,
-        email: account.email || account.username
-      })
-      const session = sessionByAccount(account.id)
-      if (session) {
-        session.accessToken = captured.accessToken
-        session.refreshToken = captured.refreshToken || session.refreshToken
-      } else {
-        sessions.value.push({
-          accountId: account.id,
-          accessToken: captured.accessToken,
-          userId: account.userId,
-          refreshToken: captured.refreshToken || undefined
-        })
-      }
-      persist()
-      await syncAccount(account.id)
-      return 'synced'
     }
     return 'need-form'
   }

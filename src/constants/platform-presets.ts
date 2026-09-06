@@ -12,20 +12,8 @@ export const platformPresets: Record<PlatformType, PlatformPreset> = {
     supportsKeyModelLimits: true,
     supportsCrossGroupRetry: true,
     identityLabel: '用户名',
-    identityPlaceholder: '站点用户名'
-  },
-  oneapi: {
-    type: 'oneapi',
-    label: 'OneAPI',
-    shortLabel: 'O',
-    description: 'OneAPI 用户账号',
-    color: '#3178df',
-    lightColor: '#edf4ff',
-    supportsAccessToken: true,
-    supportsKeyModelLimits: true,
-    supportsCrossGroupRetry: true,
-    identityLabel: '用户名',
-    identityPlaceholder: '站点用户名'
+    identityPlaceholder: '站点用户名',
+    iconAsset: '/static/platforms/newapi.png'
   },
   sub2api: {
     type: 'sub2api',
@@ -38,7 +26,8 @@ export const platformPresets: Record<PlatformType, PlatformPreset> = {
     supportsKeyModelLimits: false,
     supportsCrossGroupRetry: false,
     identityLabel: '邮箱',
-    identityPlaceholder: '登录邮箱'
+    identityPlaceholder: '登录邮箱',
+    iconAsset: '/static/platforms/sub2api.png'
   }
 }
 
@@ -46,8 +35,11 @@ export const platformTypeOptions = Object.values(platformPresets)
 
 export const platformLabelSlash = platformTypeOptions.map((preset) => preset.label).join(' / ')
 
+export const parsePlatformType = (type?: string): PlatformType =>
+  type === 'sub2api' ? 'sub2api' : 'newapi'
+
 export const getPlatformPreset = (type: string): PlatformPreset =>
-  platformPresets[type as PlatformType] ?? platformPresets.newapi
+  platformPresets[parsePlatformType(type)]
 
 export const summarizePlatformTypes = (accounts: Array<{ platformType: string }>): string => {
   const parts = platformTypeOptions

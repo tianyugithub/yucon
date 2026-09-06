@@ -13,11 +13,14 @@ import 'package:vault/app/privacy/screen_privacy.dart';
 import 'package:vault/app/utils/app_update.dart';
 import 'package:vault/app/utils/format.dart';
 import 'package:vault/screens/data_backup_screen.dart';
+import 'package:vault/screens/captcha_solver_screen.dart';
 import 'package:vault/screens/developer_options_screen.dart';
+import 'package:vault/screens/identity_screen.dart';
 import 'package:vault/screens/open_source_screen.dart';
 import 'package:vault/screens/theme_define.dart';
 import 'package:vault/screens/themes.dart';
 import 'package:vault/screens/widgets/account_card.dart';
+import 'package:vault/screens/widgets/identity_brand_icon.dart';
 import 'package:vault/screens/widgets/network_proxy_panel.dart';
 import 'package:vault/screens/widgets/tab_icon.dart';
 import 'package:vault/screens/widgets/ui.dart';
@@ -37,223 +40,335 @@ class ProfileScreen extends StatelessWidget {
 
     return SecureScope(
       child: ListView(
-      padding: const EdgeInsets.fromLTRB(15, 4, 15, 24),
-      children: [
-        YuconCard(
-          padding: const EdgeInsets.all(15),
-          child: Row(
-            children: [
-              const Expanded(child: BrandMark(size: 47)),
-              StatusChip(
-                label: store.accounts.isEmpty ? '等待连接' : '已连接站点',
-                color: const Color(0xFFD91D0D),
-                background: ThemeDefine.kColorSoft,
-              ),
-            ],
+        padding: const EdgeInsets.fromLTRB(15, 4, 15, 24),
+        children: [
+          YuconCard(
+            padding: const EdgeInsets.all(15),
+            child: Row(
+              children: [
+                const Expanded(child: BrandMark(size: 47)),
+                StatusChip(
+                  label: store.accounts.isEmpty ? '等待连接' : '已连接站点',
+                  color: const Color(0xFFD91D0D),
+                  background: ThemeDefine.kColorSoft,
+                ),
+              ],
+            ),
           ),
-        ),
-        YuconCard(
-          padding: const EdgeInsets.all(12),
-          child: Row(
+          YuconCard(
+            padding: const EdgeInsets.all(12),
+            child: Row(
+              children: [
+                const SquareIcon(
+                  size: 32,
+                  radius: 10,
+                  color: ThemeDefine.kColorPrimary,
+                  child: TabIcon(
+                    name: YuconTabIcon.accounts,
+                    size: 17,
+                    color: Colors.white,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '已管理 ${store.accounts.length} 个账号',
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        summarizePlatformTypes(store.accounts),
+                        style: const TextStyle(
+                          color: ThemeDefine.kColorText,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SectionTitle(text: '管理概览'),
+          GroupCard(
             children: [
-              const SquareIcon(
-                size: 32,
-                radius: 10,
-                color: ThemeDefine.kColorPrimary,
-                child: TabIcon(name: YuconTabIcon.accounts, size: 17, color: Colors.white),
+              GroupTile(
+                title: '全部可用额度',
+                subtitle: store.excludedFromTotalCount > 0
+                    ? '已排除 ${store.excludedFromTotalCount} 个账号'
+                    : null,
+                value: formatCurrency(store.totalQuota),
+                leading: _cellIcon('￥', const Color(0xFFFA2C19)),
               ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '已管理 ${store.accounts.length} 个账号',
-                      style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      summarizePlatformTypes(store.accounts),
-                      style: const TextStyle(color: ThemeDefine.kColorText, fontSize: 12),
-                    ),
-                  ],
+              GroupTile(
+                title: '累计已用额度',
+                value: formatCurrency(store.totalUsedQuota),
+                leading: _cellIconWidget(
+                  const TabIcon(
+                    name: YuconTabIcon.logs,
+                    size: 14,
+                    color: Colors.white,
+                  ),
+                  const Color(0xFF3178DF),
+                ),
+              ),
+              GroupTile(
+                title: '可用密钥',
+                value: '${store.activeApiKeyCount} 个',
+                leading: _cellIconWidget(
+                  const TabIcon(
+                    name: YuconTabIcon.keys,
+                    size: 14,
+                    color: Colors.white,
+                  ),
+                  const Color(0xFF21A366),
                 ),
               ),
             ],
           ),
-        ),
-        const SectionTitle(text: '管理概览'),
-        GroupCard(
-          children: [
-            GroupTile(
-              title: '全部可用额度',
-              subtitle: store.excludedFromTotalCount > 0
-                  ? '已排除 ${store.excludedFromTotalCount} 个账号'
-                  : null,
-              value: formatCurrency(store.totalQuota),
-              leading: _cellIcon('￥', const Color(0xFFFA2C19)),
+          Padding(
+            padding: const EdgeInsets.only(top: 13),
+            child: NetworkProxyPanel(
+              value: store.settings.networkProxy,
+              showFollowGlobal: false,
+              onChanged: (proxy) {
+                final next = proxy.mode == NetworkProxyMode.followGlobal
+                    ? (proxy.copy()..mode = NetworkProxyMode.custom)
+                    : proxy;
+                store.updateSettings(
+                  store.settings.copyWith(networkProxy: next),
+                );
+              },
             ),
-            GroupTile(
-              title: '累计已用额度',
-              value: formatCurrency(store.totalUsedQuota),
-              leading: _cellIconWidget(
-                const TabIcon(name: YuconTabIcon.logs, size: 14, color: Colors.white),
-                const Color(0xFF3178DF),
-              ),
-            ),
-            GroupTile(
-              title: '可用密钥',
-              value: '${store.activeApiKeyCount} 个',
-              leading: _cellIconWidget(
-                const TabIcon(name: YuconTabIcon.keys, size: 14, color: Colors.white),
-                const Color(0xFF21A366),
-              ),
-            ),
-          ],
-        ),
-        Padding(
-          padding: const EdgeInsets.only(top: 13),
-          child: NetworkProxyPanel(
-            value: store.settings.networkProxy,
-            showFollowGlobal: false,
-            onChanged: (proxy) {
-              final next = proxy.mode == NetworkProxyMode.followGlobal
-                  ? (proxy.copy()..mode = NetworkProxyMode.custom)
-                  : proxy;
-              store.updateSettings(store.settings.copyWith(networkProxy: next));
-            },
           ),
-        ),
-        const SectionTitle(text: '偏好设置'),
-        GroupCard(
-          children: [
-            GroupTile(
-              title: '额度预警',
-              value: '低于 \$${store.settings.lowQuotaThreshold.toStringAsFixed(2)} 时提醒',
-              leading: _cellIcon('!', const Color(0xFFED8A19)),
-              onTap: () => _editThreshold(context, store),
-            ),
-            GroupTile(
-              title: '额度通知',
-              leading: _cellIcon('✓', ThemeDefine.kColorPrimary),
-              trailing: Switch(
-                value: store.settings.notificationEnabled,
-                onChanged: (value) {
-                  store.updateSettings(store.settings.copyWith(notificationEnabled: value));
-                  store.notify(value ? '额度通知已开启' : '额度通知已关闭', FeedbackType.text);
-                },
-              ),
-            ),
-            GroupTile(
-              title: '记录使用时的 IP',
-              leading: _cellIconWidget(
-                const TabIcon(name: YuconTabIcon.logs, size: 14, color: Colors.white),
-                const Color(0xFF3178DF),
-              ),
-              trailing: Switch(
-                value: store.settings.recordIpLog,
-                onChanged: (value) {
-                  store.updateSettings(store.settings.copyWith(recordIpLog: value));
-                  store.notify(value ? '已开启 IP 记录' : '已关闭 IP 记录', FeedbackType.text);
-                },
-              ),
-            ),
-            GroupTile(
-              title: '深色模式',
-              leading: _cellIcon('◐', const Color(0xFF25272B)),
-              trailing: Switch(
-                value: themes.isDark(context),
-                onChanged: (_) {
-                  themes.toggleNight(context);
-                  store.updateSettings(store.settings.copyWith(darkMode: !store.settings.darkMode));
-                },
-              ),
-            ),
-          ],
-        ),
-        const SectionTitle(text: '数据与关于'),
-        GroupCard(
-          children: [
-            GroupTile(
-              title: '数据备份',
-              subtitle: '导入、备份和导出本机数据',
-              leading: _cellIconWidget(
-                const Icon(Icons.unarchive_outlined, size: 16, color: Colors.white),
-                const Color(0xFF1F6FEB),
-              ),
-              onTap: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const DataBackupScreen()),
-                );
-              },
-            ),
-            GroupTile(
-              title: '开发者选项',
-              subtitle: '请求记录等调试工具',
-              leading: _cellIconWidget(
-                const Icon(Icons.developer_mode, size: 16, color: Colors.white),
-                const Color(0xFF8257E6),
-              ),
-              onTap: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const DeveloperOptionsScreen()),
-                );
-              },
-            ),
-            GroupTile(
-              title: '本地数据说明',
-              value: '登录信息保存在本机',
-              leading: _cellIconWidget(
-                const TabIcon(name: YuconTabIcon.accounts, size: 14, color: Colors.white),
-                const Color(0xFF8257E6),
-              ),
-              onTap: () => _showSheet(
-                context,
-                '本地数据说明',
-                '账号列表、登录状态、登录密码和最近同步结果保存在本机。登录密码只放在本机加密存储里，备份文件也会再加密一次。额度、密钥和日志都从对应站点读取。换机或重装前，到「数据备份」导出一份。',
-              ),
-            ),
-            GroupTile(
-              title: '检查更新',
-              subtitle: _updateSubtitle(store),
-              value: store.hasAppUpdate ? '可更新' : null,
-              leading: _cellIconWidget(
-                const Icon(Icons.system_update_alt, size: 16, color: Colors.white),
-                const Color(0xFF1F6FEB),
-              ),
-              onTap: () => _handleUpdate(context, store),
-            ),
-            GroupTile(
-              title: '开源与致谢',
-              subtitle: '本软件、兼容网关与许可证',
-              leading: _cellIconWidget(
-                const Icon(Icons.code, size: 16, color: Colors.white),
-                const Color(0xFF24292F),
-              ),
-              onTap: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const OpenSourceScreen()),
-                );
-              },
-            ),
-            GroupTile(
-              title: '关于 Yucon 钥仓',
-              value: '多站点额度管理',
-              leading: ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: Image.asset(
-                  'assets/brand/yucon-app-icon.png',
+          const SectionTitle(text: '身份'),
+          GroupCard(
+            children: [
+              GroupTile(
+                title: '登录身份',
+                subtitle: '按 Google、GitHub 分组记住第三方登录',
+                value: store.identitySummaryLabel(),
+                leading: const SizedBox(
                   width: 28,
                   height: 28,
-                  fit: BoxFit.cover,
+                  child: Stack(
+                    children: [
+                      Positioned(
+                        left: 0,
+                        top: 0,
+                        child: IdentityBrandIcon.google(size: 18),
+                      ),
+                      Positioned(
+                        right: 0,
+                        bottom: 0,
+                        child: IdentityBrandIcon.github(size: 18),
+                      ),
+                    ],
+                  ),
+                ),
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const IdentityScreen()),
+                  );
+                },
+              ),
+            ],
+          ),
+          const SectionTitle(text: '偏好设置'),
+          GroupCard(
+            children: [
+              GroupTile(
+                title: '验证码服务',
+                subtitle: '连接开启人机验证的站点时自动过盾',
+                value: store.settings.captchaSolver.enabled
+                    ? captchaSolverTypeLabel(store.settings.captchaSolver.type)
+                    : '未开启',
+                leading: _cellIconWidget(
+                  const Icon(
+                    Icons.shield_outlined,
+                    size: 16,
+                    color: Colors.white,
+                  ),
+                  const Color(0xFFE8622C),
+                ),
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const CaptchaSolverScreen(),
+                    ),
+                  );
+                },
+              ),
+              GroupTile(
+                title: '额度预警',
+                value:
+                    '低于 \$${store.settings.lowQuotaThreshold.toStringAsFixed(2)} 时提醒',
+                leading: _cellIcon('!', const Color(0xFFED8A19)),
+                onTap: () => _editThreshold(context, store),
+              ),
+              GroupTile(
+                title: '额度通知',
+                leading: _cellIcon('✓', ThemeDefine.kColorPrimary),
+                trailing: Switch(
+                  value: store.settings.notificationEnabled,
+                  onChanged: (value) {
+                    store.updateSettings(
+                      store.settings.copyWith(notificationEnabled: value),
+                    );
+                    store.notify(
+                      value ? '额度通知已开启' : '额度通知已关闭',
+                      FeedbackType.text,
+                    );
+                  },
                 ),
               ),
-              onTap: () => _showAbout(context),
-            ),
-          ],
-        ),
-      ],
-    ),
+              GroupTile(
+                title: '记录使用时的 IP',
+                leading: _cellIconWidget(
+                  const TabIcon(
+                    name: YuconTabIcon.logs,
+                    size: 14,
+                    color: Colors.white,
+                  ),
+                  const Color(0xFF3178DF),
+                ),
+                trailing: Switch(
+                  value: store.settings.recordIpLog,
+                  onChanged: (value) {
+                    store.updateSettings(
+                      store.settings.copyWith(recordIpLog: value),
+                    );
+                    store.notify(
+                      value ? '已开启 IP 记录' : '已关闭 IP 记录',
+                      FeedbackType.text,
+                    );
+                  },
+                ),
+              ),
+              GroupTile(
+                title: '深色模式',
+                leading: _cellIcon('◐', const Color(0xFF25272B)),
+                trailing: Switch(
+                  value: themes.isDark(context),
+                  onChanged: (_) {
+                    themes.toggleNight(context);
+                    store.updateSettings(
+                      store.settings.copyWith(
+                        darkMode: !store.settings.darkMode,
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+          const SectionTitle(text: '数据与关于'),
+          GroupCard(
+            children: [
+              GroupTile(
+                title: '数据备份',
+                subtitle: '导入、备份和导出本机数据',
+                leading: _cellIconWidget(
+                  const Icon(
+                    Icons.unarchive_outlined,
+                    size: 16,
+                    color: Colors.white,
+                  ),
+                  const Color(0xFF1F6FEB),
+                ),
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const DataBackupScreen()),
+                  );
+                },
+              ),
+              GroupTile(
+                title: '开发者选项',
+                subtitle: '请求记录等调试工具',
+                leading: _cellIconWidget(
+                  const Icon(
+                    Icons.developer_mode,
+                    size: 16,
+                    color: Colors.white,
+                  ),
+                  const Color(0xFF8257E6),
+                ),
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const DeveloperOptionsScreen(),
+                    ),
+                  );
+                },
+              ),
+              GroupTile(
+                title: '本地数据说明',
+                value: '登录信息保存在本机',
+                leading: _cellIconWidget(
+                  const TabIcon(
+                    name: YuconTabIcon.accounts,
+                    size: 14,
+                    color: Colors.white,
+                  ),
+                  const Color(0xFF8257E6),
+                ),
+                onTap: () => _showSheet(
+                  context,
+                  '本地数据说明',
+                  '账号列表、登录状态、登录密码、Google / GitHub 身份和验证码服务密钥保存在本机。这些内容只放在本机加密存储里，备份文件也会再加密一次。额度、密钥和日志都从对应站点读取。换机或重装前，到「数据备份」导出一份。',
+                ),
+              ),
+              GroupTile(
+                title: '检查更新',
+                subtitle: _updateSubtitle(store),
+                value: store.hasAppUpdate ? '可更新' : null,
+                leading: _cellIconWidget(
+                  const Icon(
+                    Icons.system_update_alt,
+                    size: 16,
+                    color: Colors.white,
+                  ),
+                  const Color(0xFF1F6FEB),
+                ),
+                onTap: () => _handleUpdate(context, store),
+              ),
+              GroupTile(
+                title: '开源与致谢',
+                subtitle: '本软件、兼容网关与许可证',
+                leading: _cellIconWidget(
+                  const Icon(Icons.code, size: 16, color: Colors.white),
+                  const Color(0xFF24292F),
+                ),
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const OpenSourceScreen()),
+                  );
+                },
+              ),
+              GroupTile(
+                title: '关于 Yucon 钥仓',
+                value: '多站点额度管理',
+                leading: ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: Image.asset(
+                    'assets/brand/yucon-app-icon.png',
+                    width: 28,
+                    height: 28,
+                    fit: BoxFit.cover,
+                  ),
+                ),
+                onTap: () => _showAbout(context),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 
@@ -262,7 +377,14 @@ class ProfileScreen extends StatelessWidget {
       size: 28,
       radius: 8,
       color: color,
-      child: Text(text, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 13)),
+      child: Text(
+        text,
+        style: const TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.w800,
+          fontSize: 13,
+        ),
+      ),
     );
   }
 
@@ -312,16 +434,27 @@ class ProfileScreen extends StatelessWidget {
       isScrollControlled: true,
       builder: (context) {
         return Padding(
-          padding: EdgeInsets.fromLTRB(20, 20, 20, 20 + MediaQuery.of(context).viewInsets.bottom),
+          padding: EdgeInsets.fromLTRB(
+            20,
+            20,
+            20,
+            20 + MediaQuery.of(context).viewInsets.bottom,
+          ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Text('发现新版本', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+              const Text(
+                '发现新版本',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+              ),
               const SizedBox(height: 8),
               Text(
                 'v${release.version}  ·  当前 v$kAppVersion',
-                style: const TextStyle(color: ThemeDefine.kColorText, height: 1.5),
+                style: const TextStyle(
+                  color: ThemeDefine.kColorText,
+                  height: 1.5,
+                ),
               ),
               const SizedBox(height: 12),
               ConstrainedBox(
@@ -348,8 +481,15 @@ class ProfileScreen extends StatelessWidget {
     );
   }
 
-  Future<void> _openUpdateUrl(BuildContext context, VaultStore store, AppReleaseInfo release) async {
-    final url = preferredUpdateUrl(release, android: !kIsWeb && Platform.isAndroid);
+  Future<void> _openUpdateUrl(
+    BuildContext context,
+    VaultStore store,
+    AppReleaseInfo release,
+  ) async {
+    final url = preferredUpdateUrl(
+      release,
+      android: !kIsWeb && Platform.isAndroid,
+    );
     final uri = Uri.parse(url);
     try {
       final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
@@ -362,24 +502,36 @@ class ProfileScreen extends StatelessWidget {
   }
 
   Future<void> _editThreshold(BuildContext context, VaultStore store) async {
-    final controller = TextEditingController(text: store.settings.lowQuotaThreshold.toStringAsFixed(2));
+    final controller = TextEditingController(
+      text: store.settings.lowQuotaThreshold.toStringAsFixed(2),
+    );
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       builder: (context) {
         return Padding(
-          padding: EdgeInsets.fromLTRB(20, 20, 20, 20 + MediaQuery.of(context).viewInsets.bottom),
+          padding: EdgeInsets.fromLTRB(
+            20,
+            20,
+            20,
+            20 + MediaQuery.of(context).viewInsets.bottom,
+          ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Text('额度预警', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+              const Text(
+                '额度预警',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+              ),
               const SizedBox(height: 8),
               const Text('当任意账号额度低于该值时显示提醒。'),
               const SizedBox(height: 16),
               TextField(
                 controller: controller,
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
                 decoration: const InputDecoration(labelText: '提醒额度（美元）'),
               ),
               const SizedBox(height: 16),
@@ -391,7 +543,9 @@ class ProfileScreen extends StatelessWidget {
                     store.notify('请输入有效的提醒额度', FeedbackType.error);
                     return;
                   }
-                  store.updateSettings(store.settings.copyWith(lowQuotaThreshold: value));
+                  store.updateSettings(
+                    store.settings.copyWith(lowQuotaThreshold: value),
+                  );
                   store.notify('提醒额度已更新');
                   Navigator.pop(context);
                 },
@@ -414,12 +568,18 @@ class ProfileScreen extends StatelessWidget {
             children: [
               const BrandMark(size: 54),
               const SizedBox(height: 16),
-              const Text('Yucon 钥仓', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+              const Text(
+                'Yucon 钥仓',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+              ),
               const SizedBox(height: 8),
               Text(
                 '独立客户端。连接 ${platformLabelSlash()} 站点，在本机管理额度、密钥与调用记录。',
                 textAlign: TextAlign.center,
-                style: const TextStyle(height: 1.5, color: ThemeDefine.kColorText),
+                style: const TextStyle(
+                  height: 1.5,
+                  color: ThemeDefine.kColorText,
+                ),
               ),
               const SizedBox(height: 14),
               const StatusChip(
@@ -454,7 +614,13 @@ class ProfileScreen extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
               const SizedBox(height: 10),
               Text(body, style: const TextStyle(height: 1.5)),
             ],

@@ -16,12 +16,7 @@ import 'package:vault/screens/widgets/ui.dart';
 
 const _pageSizes = [10, 20, 50];
 
-const _logTypes = [
-  (2, '消费'),
-  (5, '错误'),
-  (1, '充值'),
-  (0, '全部类型'),
-];
+const _logTypes = [(0, '全部类型'), (2, '消费'), (5, '错误'), (1, '充值')];
 
 const _ranges = [
   (UsageTimeRange.today, '今天'),
@@ -41,7 +36,7 @@ class LogsScreen extends StatefulWidget {
 
 class _LogsScreenState extends State<LogsScreen> {
   bool _usage = true;
-  String? _usageAccountId;
+  String _usageAccountId = '';
   String? _checkinSiteKey;
   int _page = 1;
   int _checkinPage = 1;
@@ -65,15 +60,13 @@ class _LogsScreenState extends State<LogsScreen> {
     super.dispose();
   }
 
-  bool get _allAccounts => _usageAccountId == '';
+  bool get _allAccounts => _usageAccountId.isEmpty;
 
   Account? _usageAccount(VaultStore store) {
     if (store.accounts.isEmpty || _allAccounts) {
       return null;
     }
-    return store.accountById(_usageAccountId ?? '') ??
-        store.selectedKeysAccount ??
-        store.accounts.first;
+    return store.accountById(_usageAccountId) ?? store.accounts.first;
   }
 
   String _resultKey(VaultStore store) {
@@ -91,7 +84,12 @@ class _LogsScreenState extends State<LogsScreen> {
 
   String _typeLabel(int type) => type == 0
       ? '全部类型'
-      : _logTypes.firstWhere((item) => item.$1 == type, orElse: () => (type, usageLogTypeLabel(type))).$2;
+      : _logTypes
+            .firstWhere(
+              (item) => item.$1 == type,
+              orElse: () => (type, usageLogTypeLabel(type)),
+            )
+            .$2;
 
   UsageLogQuery _queryFor(Account? account) => UsageLogQuery(
     accountId: account?.id ?? '',
@@ -120,8 +118,9 @@ class _LogsScreenState extends State<LogsScreen> {
   }
 
   List<CheckinLog> _filteredCheckins(VaultStore store) {
-    final logs = [...store.checkinLogs]
-      ..sort((a, b) => DateTime.parse(b.time).compareTo(DateTime.parse(a.time)));
+    final logs = [
+      ...store.checkinLogs,
+    ]..sort((a, b) => DateTime.parse(b.time).compareTo(DateTime.parse(a.time)));
     final key = _checkinSiteKey;
     if (key == null || key.isEmpty) {
       return logs;
@@ -201,8 +200,8 @@ class _LogsScreenState extends State<LogsScreen> {
     }
   }
 
-  Future<void> _openUsageFilters(VaultStore store, Account? account) async {
-    final selectedId = _usageAccountId ?? account?.id ?? '';
+  Future<void> _openUsageFilters(VaultStore store) async {
+    final selectedId = _usageAccountId;
     final showTypeFilters = selectedId.isEmpty
         ? store.accounts.any(
             (item) => item.platformType != PlatformType.sub2api,
@@ -244,10 +243,8 @@ class _LogsScreenState extends State<LogsScreen> {
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
-      builder: (context) => _CheckinFilterSheet(
-        sites: sites,
-        selectedKey: _checkinSiteKey,
-      ),
+      builder: (context) =>
+          _CheckinFilterSheet(sites: sites, selectedKey: _checkinSiteKey),
     );
     if (next == null || !mounted) {
       return;
@@ -309,7 +306,9 @@ class _LogsScreenState extends State<LogsScreen> {
   @override
   void didUpdateWidget(LogsScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.active && !oldWidget.active && context.read<VaultStore>().accounts.isNotEmpty) {
+    if (widget.active &&
+        !oldWidget.active &&
+        context.read<VaultStore>().accounts.isNotEmpty) {
       _bootstrapped = true;
       _reload();
     }
@@ -358,11 +357,13 @@ class _LogsScreenState extends State<LogsScreen> {
     final selectedSiteLabel = _checkinSiteKey == null
         ? '全部站点'
         : _checkinSites(store)
-            .where((item) => item.$1 == _checkinSiteKey)
-            .map((item) => item.$2)
-            .firstWhere((label) => label.isNotEmpty, orElse: () => '当前站点');
+              .where((item) => item.$1 == _checkinSiteKey)
+              .map((item) => item.$2)
+              .firstWhere((label) => label.isNotEmpty, orElse: () => '当前站点');
     final showUsagePager =
-        _usage && result != null && (result.items.isNotEmpty || result.page > 1);
+        _usage &&
+        result != null &&
+        (result.items.isNotEmpty || result.page > 1);
     final showCheckinPager = !_usage && checkins.length > _pageSize;
 
     return Column(
@@ -408,7 +409,9 @@ class _LogsScreenState extends State<LogsScreen> {
                       ? '未选择账号'
                       : store.displayAccountName(usageAccount),
                   rangeLabel: _rangeLabel(_range),
-                  typeLabel: _isSub2(usageAccount) ? '消费' : _typeLabel(_logType),
+                  typeLabel: _isSub2(usageAccount)
+                      ? '消费'
+                      : _typeLabel(_logType),
                   extraFilters:
                       _range != UsageTimeRange.all ||
                       (!_isSub2(usageAccount) && _logType != 0) ||
@@ -420,7 +423,7 @@ class _LogsScreenState extends State<LogsScreen> {
                   loading: _loading && result == null,
                   onFilter: store.accounts.isEmpty
                       ? null
-                      : () => _openUsageFilters(store, usageAccount),
+                      : () => _openUsageFilters(store),
                 )
               : _CheckinSummaryCard(
                   siteLabel: selectedSiteLabel,
@@ -703,10 +706,14 @@ class _SelectChip extends StatelessWidget {
         constraints: BoxConstraints(maxWidth: maxWidth ?? 220),
         child: DecoratedBox(
           decoration: BoxDecoration(
-            color: selected ? ThemeDefine.kColorSoft : Theme.of(context).cardColor,
+            color: selected
+                ? ThemeDefine.kColorSoft
+                : Theme.of(context).cardColor,
             borderRadius: BorderRadius.circular(99),
             border: Border.all(
-              color: selected ? const Color(0x29FA2C19) : ThemeDefine.kColorLine,
+              color: selected
+                  ? const Color(0x29FA2C19)
+                  : ThemeDefine.kColorLine,
             ),
           ),
           child: Padding(
@@ -760,7 +767,8 @@ class _UsageSummaryCard extends StatelessWidget {
     final amountColor = logType == 1 || logType == 6
         ? const Color(0xFF168553)
         : ThemeDefine.kColorPrimary;
-    final allOnPage = result != null &&
+    final allOnPage =
+        result != null &&
         result!.totalKnown &&
         result!.items.length >= result!.total;
     final quotaLabel = switch (logType) {
@@ -833,10 +841,7 @@ class _UsageSummaryCard extends StatelessWidget {
                 : '$accountLabel · 全部记录',
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: Color(0xFFA0A5AD),
-              fontSize: 12,
-            ),
+            style: const TextStyle(color: Color(0xFFA0A5AD), fontSize: 12),
           ),
         ],
       ),
@@ -901,10 +906,7 @@ class _CheckinSummaryCard extends StatelessWidget {
             '$siteLabel · 成功 $successCount 次 · 共 $totalCount 条',
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: Color(0xFFA0A5AD),
-              fontSize: 12,
-            ),
+            style: const TextStyle(color: Color(0xFFA0A5AD), fontSize: 12),
           ),
         ],
       ),
@@ -933,7 +935,11 @@ class _FilterButton extends StatelessWidget {
 }
 
 class _UsageLogCard extends StatelessWidget {
-  const _UsageLogCard({required this.log, required this.showIp, required this.onOpen});
+  const _UsageLogCard({
+    required this.log,
+    required this.showIp,
+    required this.onOpen,
+  });
 
   final UsageLog log;
   final bool showIp;
@@ -947,7 +953,9 @@ class _UsageLogCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final duration = formatUseTime(log.useTime);
     final details = <String>[
-      if (!_isTopup && log.apiKeyName.trim().isNotEmpty && log.apiKeyName != '未命名密钥')
+      if (!_isTopup &&
+          log.apiKeyName.trim().isNotEmpty &&
+          log.apiKeyName != '未命名密钥')
         log.apiKeyName,
       if (log.group.trim().isNotEmpty) '分组 ${log.group.trim()}',
       if (log.isStream) '流式',
@@ -981,8 +989,7 @@ class _UsageLogCard extends StatelessWidget {
                       ),
                     ),
                   )
-                : _isError &&
-                      (log.model.trim().isEmpty || log.model == '未知模型')
+                : _isError && (log.model.trim().isEmpty || log.model == '未知模型')
                 ? SquareIcon(
                     size: 27,
                     radius: 9,
@@ -1042,7 +1049,11 @@ class _UsageLogCard extends StatelessWidget {
                     ),
                     const Padding(
                       padding: EdgeInsets.only(left: 2, top: 1),
-                      child: Icon(Icons.chevron_right, color: ThemeDefine.kColorText, size: 18),
+                      child: Icon(
+                        Icons.chevron_right,
+                        color: ThemeDefine.kColorText,
+                        size: 18,
+                      ),
                     ),
                   ],
                 ),
@@ -1286,9 +1297,7 @@ class _PaginationBar extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         color: Theme.of(context).cardColor,
-        border: const Border(
-          top: BorderSide(color: ThemeDefine.kColorLine),
-        ),
+        border: const Border(top: BorderSide(color: ThemeDefine.kColorLine)),
       ),
       padding: const EdgeInsets.fromLTRB(6, 4, 6, 6),
       child: Column(
@@ -1670,11 +1679,7 @@ class _UsageFilterSheetState extends State<_UsageFilterSheet> {
   }
 
   Widget _chips(List<Widget> children) {
-    return Wrap(
-      spacing: 6,
-      runSpacing: 6,
-      children: children,
-    );
+    return Wrap(spacing: 6, runSpacing: 6, children: children);
   }
 
   @override
@@ -1713,7 +1718,10 @@ class _UsageFilterSheetState extends State<_UsageFilterSheet> {
               ),
               if (widget.accounts.length > 1) ...[
                 const SizedBox(height: 12),
-                const Text('账号', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+                const Text(
+                  '账号',
+                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                ),
                 const SizedBox(height: 6),
                 _chips([
                   _SelectChip(
@@ -1731,7 +1739,10 @@ class _UsageFilterSheetState extends State<_UsageFilterSheet> {
                 ]),
               ],
               const SizedBox(height: 12),
-              const Text('时间', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+              const Text(
+                '时间',
+                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+              ),
               const SizedBox(height: 6),
               _chips([
                 for (final item in _ranges)
@@ -1743,7 +1754,10 @@ class _UsageFilterSheetState extends State<_UsageFilterSheet> {
               ]),
               if (widget.showTypeFilters) ...[
                 const SizedBox(height: 12),
-                const Text('类型', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+                const Text(
+                  '类型',
+                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                ),
                 const SizedBox(height: 6),
                 _chips([
                   for (final item in _logTypes)
@@ -1914,10 +1928,7 @@ class _LinkedSelectField extends StatelessWidget {
         padding: const EdgeInsets.symmetric(vertical: 8),
         child: Row(
           children: [
-            if (icon != null) ...[
-              icon,
-              const SizedBox(width: 8),
-            ],
+            if (icon != null) ...[icon, const SizedBox(width: 8)],
             Expanded(
               child: Text(
                 valueLabel,
@@ -1978,20 +1989,19 @@ class _LinkedOptionSheetState extends State<_LinkedOptionSheet> {
     final keyword = _query.text.trim().toLowerCase();
     final filtered = keyword.isEmpty
         ? widget.options
-        : widget.options
-            .where((item) {
-              if (item.value.isEmpty) {
-                return true;
-              }
-              return item.label.toLowerCase().contains(keyword) ||
-                  (item.subtitle?.toLowerCase().contains(keyword) ?? false);
-            })
-            .toList();
+        : widget.options.where((item) {
+            if (item.value.isEmpty) {
+              return true;
+            }
+            return item.label.toLowerCase().contains(keyword) ||
+                (item.subtitle?.toLowerCase().contains(keyword) ?? false);
+          }).toList();
     final searchable = widget.options.length > 9;
-    final maxListHeight = (MediaQuery.sizeOf(context).height -
-            MediaQuery.viewInsetsOf(context).bottom -
-            168)
-        .clamp(120.0, MediaQuery.sizeOf(context).height * 0.42);
+    final maxListHeight =
+        (MediaQuery.sizeOf(context).height -
+                MediaQuery.viewInsetsOf(context).bottom -
+                168)
+            .clamp(120.0, MediaQuery.sizeOf(context).height * 0.42);
     return SafeArea(
       child: Padding(
         padding: EdgeInsets.fromLTRB(
@@ -2028,7 +2038,10 @@ class _LinkedOptionSheetState extends State<_LinkedOptionSheet> {
                   hintText: '搜索',
                   isDense: true,
                   prefixIcon: Icon(Icons.search, size: 18),
-                  prefixIconConstraints: BoxConstraints(minWidth: 36, minHeight: 36),
+                  prefixIconConstraints: BoxConstraints(
+                    minWidth: 36,
+                    minHeight: 36,
+                  ),
                 ),
                 onChanged: (_) => setState(() {}),
               ),
@@ -2052,7 +2065,10 @@ class _LinkedOptionSheetState extends State<_LinkedOptionSheet> {
                       itemBuilder: (context, index) {
                         final item = filtered[index];
                         final selected = item.value == widget.selected;
-                        final icon = _optionBrandIcon(item.value, item.iconKind);
+                        final icon = _optionBrandIcon(
+                          item.value,
+                          item.iconKind,
+                        );
                         return ListTile(
                           dense: true,
                           contentPadding: EdgeInsets.zero,
@@ -2071,8 +2087,8 @@ class _LinkedOptionSheetState extends State<_LinkedOptionSheet> {
                                   : ThemeDefine.kColorTitle,
                             ),
                           ),
-                          subtitle: item.subtitle == null ||
-                                  item.subtitle!.isEmpty
+                          subtitle:
+                              item.subtitle == null || item.subtitle!.isEmpty
                               ? null
                               : Text(
                                   item.subtitle!,
@@ -2099,10 +2115,7 @@ class _LinkedOptionSheetState extends State<_LinkedOptionSheet> {
 }
 
 class _CheckinFilterSheet extends StatelessWidget {
-  const _CheckinFilterSheet({
-    required this.sites,
-    required this.selectedKey,
-  });
+  const _CheckinFilterSheet({required this.sites, required this.selectedKey});
 
   final List<(String, String)> sites;
   final String? selectedKey;
@@ -2132,25 +2145,25 @@ class _CheckinFilterSheet extends StatelessWidget {
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 12),
-          Wrap(
-            spacing: 6,
-            runSpacing: 6,
-            children: [
-              _SelectChip(
-                label: '全部站点',
-                selected: selectedKey == null,
-                onTap: () => Navigator.pop(context, const _SitePick(null)),
-              ),
-              for (final site in sites)
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
                 _SelectChip(
-                  label: site.$2,
-                  selected: selectedKey == site.$1,
-                  maxWidth: 180,
-                  onTap: () => Navigator.pop(context, _SitePick(site.$1)),
+                  label: '全部站点',
+                  selected: selectedKey == null,
+                  onTap: () => Navigator.pop(context, const _SitePick(null)),
                 ),
-            ],
-          ),
-        ],
+                for (final site in sites)
+                  _SelectChip(
+                    label: site.$2,
+                    selected: selectedKey == site.$1,
+                    maxWidth: 180,
+                    onTap: () => Navigator.pop(context, _SitePick(site.$1)),
+                  ),
+              ],
+            ),
+          ],
         ),
       ),
     );

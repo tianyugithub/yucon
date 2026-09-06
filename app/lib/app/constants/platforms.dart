@@ -15,19 +15,7 @@ const platformPresets = <PlatformType, PlatformPreset>{
     supportsCrossGroupRetry: true,
     identityLabel: '用户名',
     identityPlaceholder: '站点用户名',
-  ),
-  PlatformType.oneapi: PlatformPreset(
-    type: PlatformType.oneapi,
-    label: 'OneAPI',
-    shortLabel: 'O',
-    description: 'OneAPI 站点账号',
-    color: 0xFF3178DF,
-    lightColor: 0xFFEDF4FF,
-    supportsAccessToken: true,
-    supportsKeyModelLimits: true,
-    supportsCrossGroupRetry: true,
-    identityLabel: '用户名',
-    identityPlaceholder: '站点用户名',
+    iconAsset: 'assets/platforms/newapi.png',
   ),
   PlatformType.sub2api: PlatformPreset(
     type: PlatformType.sub2api,
@@ -41,6 +29,7 @@ const platformPresets = <PlatformType, PlatformPreset>{
     supportsCrossGroupRetry: false,
     identityLabel: '邮箱',
     identityPlaceholder: '登录邮箱',
+    iconAsset: 'assets/platforms/sub2api.png',
   ),
 };
 

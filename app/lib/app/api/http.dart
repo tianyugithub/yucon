@@ -40,8 +40,7 @@ class ApiError implements Exception {
 const kSiteNetworkBlockedMessage =
     '这个网站不支持在当前网络下访问。不是账号填错，是站点不允许你现在所用的网络打开它。请到「我的」换一个可用代理后再连';
 
-const kSiteUnreachableMessage =
-    '手机是有网的，但这个网站当前打不开。不是登录过期。可到「我的」换一个可用代理后再同步';
+const kSiteUnreachableMessage = '手机是有网的，但这个网站当前打不开。不是登录过期。可到「我的」换一个可用代理后再同步';
 
 const kDnsPollutedMessage =
     '当前网络的域名解析不正常，这个网站可能被 DNS 污染了。不是登录过期。请到「我的」换一个可用代理后再同步';
@@ -104,8 +103,10 @@ bool isNetworkBlockedError(Object error) {
       return true;
     }
     if (error.status == 403 &&
-        !RegExp(r'未登录|登录过期|凭证无效|unauthor|token.*(expir|invalid)', caseSensitive: false)
-            .hasMatch(error.message) &&
+        !RegExp(
+          r'未登录|登录过期|凭证无效|unauthor|token.*(expir|invalid)',
+          caseSensitive: false,
+        ).hasMatch(error.message) &&
         _looksLikeHtmlOrCloudflare(error.message)) {
       return true;
     }
@@ -152,21 +153,27 @@ String sanitizeErrorText(String text, [String fallback = '站点暂时无法响�
     if (RegExp(r'error 524|a timeout occurred').hasMatch(lower)) {
       return '站点处理超时，请稍后再试';
     }
-    if (RegExp(r'error 525|error 526|ssl handshake failed|invalid ssl certificate').hasMatch(lower)) {
+    if (RegExp(
+      r'error 525|error 526|ssl handshake failed|invalid ssl certificate',
+    ).hasMatch(lower)) {
       return '站点证书有问题，请检查地址是否为 https';
     }
     if (looksLikeNetworkBlockPage(trimmed)) {
       return kSiteNetworkBlockedMessage;
     }
-    if (RegExp(r'未备案|域名不存在|上网助手|该网站无法访问|网站无法访问|dns.?poison|nxdomain').hasMatch(lower) &&
+    if (RegExp(r'未备案|域名不存在|上网助手|该网站无法访问|网站无法访问|dns.?poison|nxdomain')
+            .hasMatch(lower) &&
         !looksLikeNetworkBlockPage(trimmed)) {
       return kDnsPollutedMessage;
     }
-    if (RegExp(r'5xx-error-landing|cf-error-footer|error 50[0-4]|error 52[0-6]').hasMatch(lower) &&
+    if (RegExp(r'5xx-error-landing|cf-error-footer|error 50[0-4]|error 52[0-6]')
+            .hasMatch(lower) &&
         !looksLikeNetworkBlockPage(trimmed)) {
       return '站点暂时不可用。请先在浏览器打开同一个地址，能打开再回来连接';
     }
-    if (RegExp(r'just a moment|cf-browser-verification|challenge-platform|cf-chl-|enable javascript and cookies to continue').hasMatch(lower)) {
+    if (RegExp(
+      r'just a moment|cf-browser-verification|challenge-platform|cf-chl-|enable javascript and cookies to continue',
+    ).hasMatch(lower)) {
       return '账号没填错。站点开了访问防护，当前直连过不去。到「我的」填好可用代理后再连';
     }
     if (RegExp(r'attention required').hasMatch(lower)) {
@@ -174,14 +181,19 @@ String sanitizeErrorText(String text, [String fallback = '站点暂时无法响�
     }
     return '站点暂时不可用。请先在浏览器打开同一个地址，能打开再回来连接';
   }
-  if (trimmed.length > 160 || (trimmed.contains('<') && trimmed.contains('>'))) {
+  if (trimmed.length > 160 ||
+      (trimmed.contains('<') && trimmed.contains('>'))) {
     return fallback;
   }
-  if (RegExp(r'^(forbidden|access denied)\.?$', caseSensitive: false).hasMatch(trimmed)) {
+  if (RegExp(
+    r'^(forbidden|access denied)\.?$',
+    caseSensitive: false,
+  ).hasMatch(trimmed)) {
     return kSiteNetworkBlockedMessage;
   }
   if (trimmed.contains('连接超时') ||
-      (RegExp(r'timed?\s*out', caseSensitive: false).hasMatch(trimmed) && trimmed.length < 80)) {
+      (RegExp(r'timed?\s*out', caseSensitive: false).hasMatch(trimmed) &&
+          trimmed.length < 80)) {
     return kSiteUnreachableMessage;
   }
   return trimmed;
@@ -229,10 +241,13 @@ String userFacingError(Object error, [String fallback = '操作失败，请稍�
       lower.contains('certificate')) {
     return '网络连接失败，请检查网络后重试';
   }
-  if (lower.contains('timeout') || lower.contains('timed out') || lower.contains('超时')) {
+  if (lower.contains('timeout') ||
+      lower.contains('timed out') ||
+      lower.contains('超时')) {
     return kSiteUnreachableMessage;
   }
-  if (RegExp(r'(null check operator|type \x27|rangeerror|#0 |dart:)').hasMatch(lower) ||
+  if (RegExp(r'(null check operator|type \x27|rangeerror|#0 |dart:)')
+          .hasMatch(lower) ||
       text.contains('RangeError') ||
       text.contains('Null check')) {
     return fallback;
@@ -258,7 +273,11 @@ bool isAuthExpiredError(Object error) {
 }
 
 class RequestResult<T> {
-  RequestResult({required this.data, required this.cookies, required this.status});
+  RequestResult({
+    required this.data,
+    required this.cookies,
+    required this.status,
+  });
 
   final T data;
   final String cookies;
@@ -285,7 +304,8 @@ String joinUrl(String baseUrl, String path) {
   return '${normalizeBaseUrl(baseUrl)}$normalizedPath';
 }
 
-String sanitizeHeaderValue(String value) => value.replaceAll(RegExp(r'[\r\n]+'), '').trim();
+String sanitizeHeaderValue(String value) =>
+    value.replaceAll(RegExp(r'[\r\n]+'), '').trim();
 
 Map<String, dynamic> asRecord(Object? value) {
   if (value is Map<String, dynamic>) {
@@ -387,11 +407,11 @@ PagedItems<T> parsePagedItems<T>(
   final record = asRecord(data);
   final nested = asRecord(record['pagination']);
   final meta = asRecord(record['meta']);
-  final source = nested.isNotEmpty
-      ? nested
-      : (meta.isNotEmpty ? meta : record);
+  final source = nested.isNotEmpty ? nested : (meta.isNotEmpty ? meta : record);
   final parsedPage =
-      _readPositiveInt(source['page'] ?? source['current_page'] ?? source['p']) ??
+      _readPositiveInt(
+        source['page'] ?? source['current_page'] ?? source['p'],
+      ) ??
       page;
   final parsedSize =
       _readPositiveInt(
@@ -558,19 +578,24 @@ Object? parsePayload(Object? payload) {
   return (data: record, cookies: cookies);
 }
 
-void applyAuthHeaders(Map<String, String> header, String? token, String? cookie) {
-  final cookieHeader =
-      cookie?.trim().isNotEmpty == true
+void applyAuthHeaders(
+  Map<String, String> header,
+  String? token,
+  String? cookie,
+) {
+  final cookieHeader = cookie?.trim().isNotEmpty == true
       ? cookie!.trim()
       : (token != null &&
-            token.startsWith(cookieAuthPrefix) &&
-            token != nativeCookieAuth
-        ? token.substring(cookieAuthPrefix.length)
-        : '');
+                token.startsWith(cookieAuthPrefix) &&
+                token != nativeCookieAuth
+            ? token.substring(cookieAuthPrefix.length)
+            : '');
   if (cookieHeader.isNotEmpty) {
     header['Cookie'] = sanitizeHeaderValue(cookieHeader);
   }
-  if (token != null && token.isNotEmpty && !token.startsWith(cookieAuthPrefix)) {
+  if (token != null &&
+      token.isNotEmpty &&
+      !token.startsWith(cookieAuthPrefix)) {
     header['Authorization'] = 'Bearer ${sanitizeHeaderValue(token)}';
   }
 }
@@ -585,7 +610,11 @@ String? currentRequestCookies() {
   return value is String && value.trim().isNotEmpty ? value.trim() : null;
 }
 
-Future<T> runWithProxy<T>(NetworkProxy? proxy, Future<T> Function() body, {String? cookies}) {
+Future<T> runWithProxy<T>(
+  NetworkProxy? proxy,
+  Future<T> Function() body, {
+  String? cookies,
+}) {
   final values = <Object?, Object?>{};
   if (proxy != null && proxy.isConfigured) {
     values[_proxyZoneKey] = proxy;
@@ -708,7 +737,9 @@ Future<String> readWebViewCookieHeader(String url) async {
   final collected = <String>[];
   for (final candidate in candidates) {
     try {
-      final raw = await _proxyChannel.invokeMethod<String>('getCookies', {'url': candidate});
+      final raw = await _proxyChannel.invokeMethod<String>('getCookies', {
+        'url': candidate,
+      });
       if (raw != null && raw.trim().isNotEmpty) {
         collected.add(raw.trim());
       }
@@ -763,7 +794,9 @@ Future<void> testNetworkProxy(NetworkProxy proxy, {String? probeUrl}) async {
     final request = http.Request('GET', Uri.parse(probe));
     request.headers['User-Agent'] = kHttpUserAgent;
     request.headers['Accept-Language'] = 'zh-CN,zh;q=0.9,en;q=0.8';
-    final streamed = await client.send(request).timeout(const Duration(seconds: 8));
+    final streamed = await client
+        .send(request)
+        .timeout(const Duration(seconds: 8));
     await streamed.stream.drain();
     _logHttp(
       method: 'GET',
@@ -804,6 +837,40 @@ Future<void> testNetworkProxy(NetworkProxy proxy, {String? probeUrl}) async {
   }
 }
 
+Future<HttpClient> createProxiedHttpClient() async {
+  final io = _newHttpClient();
+  final proxy = currentRequestProxy();
+  if (proxy != null && proxy.isConfigured) {
+    await _configureHttpClient(io, proxy);
+  }
+  return io;
+}
+
+Future<({int status, String url})> probeHttpNavigation(
+  String url, {
+  String? cookie,
+  Duration timeout = const Duration(seconds: 12),
+}) async {
+  final client = await _clientFor(currentRequestProxy());
+  final request = http.Request('GET', Uri.parse(url));
+  request.followRedirects = true;
+  request.maxRedirects = 8;
+  request.headers['User-Agent'] = kHttpUserAgent;
+  request.headers['Accept'] =
+      'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8';
+  request.headers['Accept-Language'] = 'zh-CN,zh;q=0.9,en;q=0.8';
+  final cookieHeader = (cookie ?? '').trim();
+  if (cookieHeader.isNotEmpty) {
+    request.headers['Cookie'] = sanitizeHeaderValue(cookieHeader);
+  }
+  final streamed = await client.send(request).timeout(timeout);
+  await streamed.stream.drain();
+  return (
+    status: streamed.statusCode,
+    url: streamed.request?.url.toString() ?? url,
+  );
+}
+
 Future<RequestResult<T>> requestJsonDetailed<T>({
   String method = 'GET',
   required String path,
@@ -814,6 +881,7 @@ Future<RequestResult<T>> requestJsonDetailed<T>({
   Object? data,
   Duration timeout = const Duration(seconds: 20),
   bool requireJson = true,
+  bool throwOnHttpError = true,
   Map<String, String>? headers,
 }) async {
   final url = Uri.parse(joinUrl(baseUrl, path));
@@ -898,7 +966,9 @@ Future<RequestResult<T>> requestJsonDetailed<T>({
   }
 
   final status = response.statusCode;
-  final parsed = parsePayload(response.body.isEmpty ? <String, dynamic>{} : response.body);
+  final parsed = parsePayload(
+    response.body.isEmpty ? <String, dynamic>{} : response.body,
+  );
   final sidecar = takeSidecarCookies(parsed);
   final setCookies = <String>[];
   final split = response.headersSplitValues['set-cookie'];
@@ -907,15 +977,23 @@ Future<RequestResult<T>> requestJsonDetailed<T>({
   } else if (response.headers['set-cookie'] != null) {
     setCookies.add(response.headers['set-cookie']!);
   }
-  final cookies = mergeCookies([
-    ...setCookies,
-    sidecar.cookies,
-  ]);
+  final cookies = mergeCookies([...setCookies, sidecar.cookies]);
 
   if (status == 204) {
-    return RequestResult(data: <String, dynamic>{} as T, cookies: cookies, status: status);
+    return RequestResult(
+      data: <String, dynamic>{} as T,
+      cookies: cookies,
+      status: status,
+    );
   }
   if (status >= 400) {
+    if (!throwOnHttpError && sidecar.data is Map) {
+      return RequestResult(
+        data: sidecar.data as T,
+        cookies: cookies,
+        status: status,
+      );
+    }
     final fromPayload = sidecar.data is String
         ? sanitizeErrorText(sidecar.data as String, '')
         : messageFromPayload(sidecar.data, '');
@@ -932,7 +1010,11 @@ Future<RequestResult<T>> requestJsonDetailed<T>({
     }
     throw ApiError(sanitizeErrorText(sidecar.data as String), status);
   }
-  return RequestResult(data: (sidecar.data ?? <String, dynamic>{}) as T, cookies: cookies, status: status);
+  return RequestResult(
+    data: (sidecar.data ?? <String, dynamic>{}) as T,
+    cookies: cookies,
+    status: status,
+  );
 }
 
 Future<T> requestJson<T>({
@@ -945,6 +1027,7 @@ Future<T> requestJson<T>({
   Object? data,
   Duration timeout = const Duration(seconds: 20),
   bool requireJson = true,
+  bool throwOnHttpError = true,
   Map<String, String>? headers,
 }) async {
   final result = await requestJsonDetailed<T>(
@@ -957,6 +1040,7 @@ Future<T> requestJson<T>({
     data: data,
     timeout: timeout,
     requireJson: requireJson,
+    throwOnHttpError: throwOnHttpError,
     headers: headers,
   );
   return result.data;
@@ -979,7 +1063,9 @@ Future<Uint8List> requestBytes({
   );
   final started = DateTime.now();
   try {
-    final response = await (await _clientFor(currentRequestProxy())).get(uri, headers: header).timeout(timeout);
+    final response = await (await _clientFor(currentRequestProxy()))
+        .get(uri, headers: header)
+        .timeout(timeout);
     _logHttp(
       method: 'GET',
       url: url,
@@ -1017,6 +1103,26 @@ Future<Uint8List> requestBytes({
     );
     throw ApiError(userFacingError(error, '图像下载失败'));
   }
+}
+
+void logRawHttpRequest({
+  required String method,
+  required String url,
+  required Duration duration,
+  Map<String, String>? requestHeaders,
+  int? status,
+  String? responseBody,
+  String? error,
+}) {
+  _logHttp(
+    method: method,
+    url: url,
+    duration: duration,
+    requestHeaders: requestHeaders,
+    status: status,
+    responseBody: responseBody,
+    error: error,
+  );
 }
 
 void _logHttp({

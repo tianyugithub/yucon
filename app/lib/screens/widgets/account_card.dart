@@ -4,6 +4,7 @@ import 'package:vault/app/models/domain.dart';
 import 'package:vault/app/modules/vault_store.dart';
 import 'package:vault/app/utils/format.dart';
 import 'package:vault/screens/theme_define.dart';
+import 'package:vault/screens/widgets/platform_brand_icon.dart';
 import 'package:vault/screens/widgets/ui.dart';
 
 class AccountCard extends StatelessWidget {
@@ -51,14 +52,7 @@ class AccountCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              SquareIcon(
-                color: Color(preset.color),
-                child: Text(
-                  preset.shortLabel,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w800),
-                ),
-              ),
+              PlatformBrandIcon(type: account.platformType),
               const SizedBox(width: 8),
               Expanded(
                 child: Column(

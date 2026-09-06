@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:vault/app/api/captcha_solver.dart';
 import 'package:vault/app/api/dns_probe.dart';
 import 'package:vault/app/api/http.dart';
 import 'package:vault/app/api/key_probe.dart';
@@ -9,6 +10,9 @@ import 'package:vault/app/api/sub2api.dart';
 import 'package:vault/app/constants/model_brands.dart';
 import 'package:vault/app/constants/open_source.dart';
 import 'package:vault/app/constants/platforms.dart';
+import 'package:vault/app/identity/site_register_flow.dart';
+import 'package:vault/app/identity/web_identity.dart';
+import 'package:vault/app/identity/web_identity_io.dart';
 import 'package:vault/app/models/domain.dart';
 import 'package:vault/app/debug/http_request_log.dart';
 import 'package:vault/app/storage/vault.dart';
@@ -58,6 +62,11 @@ class VaultStore extends ChangeNotifier {
   final Map<String, List<TokenGroupOption>> tokenGroups = {};
   final Map<String, List<String>> tokenModels = {};
   final Map<String, SitePricingCatalog> pricingCatalogs = {};
+  WebIdentitySnapshot? googleIdentity;
+  WebIdentitySnapshot? githubIdentity;
+  List<IdentityLoginAccount> identityLogins = [];
+  Map<String, String> identityLoginSelectedIds = {};
+  Map<String, WebIdentitySnapshot> identitySessions = {};
   Timer? _feedbackTimer;
 
   Account? accountById(String id) {
@@ -341,78 +350,440 @@ class VaultStore extends ChangeNotifier {
       account.status != AccountStatus.expired &&
       account.status != AccountStatus.blocked;
 
-  Future<SitePricingCatalog?> loadPricingCatalog(String accountId) async {
+  bool get hasPricingCatalogs => pricingCatalogs.isNotEmpty;
+
+  bool get googleIdentityConnected => googleIdentity?.isConnected == true;
+
+  bool get githubIdentityConnected => githubIdentity?.isConnected == true;
+
+  String googleIdentityLabel() => _identityLabel(googleIdentity);
+
+  String githubIdentityLabel() => _identityLabel(githubIdentity);
+
+  List<IdentityLoginAccount> identityLoginsFor(String provider) {
+    return [
+      for (final account in identityLogins)
+        if (account.provider == provider && account.canFill) account,
+    ];
+  }
+
+  IdentityLoginAccount? identityLoginFor(String provider) {
+    final items = identityLoginsFor(provider);
+    if (items.isEmpty) {
+      return null;
+    }
+    final selectedId = identityLoginSelectedIds[provider];
+    for (final account in items) {
+      if (account.id == selectedId) {
+        return account;
+      }
+    }
+    return items.first;
+  }
+
+  String identityLoginLabel(String provider) {
+    final items = identityLoginsFor(provider);
+    if (items.isEmpty) {
+      return '未保存';
+    }
+    if (items.length == 1) {
+      return items.first.label;
+    }
+    return '${items.length} 个';
+  }
+
+  String identityLoginSubtitle(String provider) {
+    final items = identityLoginsFor(provider);
+    if (items.length > 1) {
+      final selected = identityLoginFor(provider);
+      final name = selected?.label ?? '';
+      return name.isEmpty ? '可保存多个，登录页填入当前选中的账号' : '当前填入 $name';
+    }
+    return '可保存多个，登录页自动填入，登录需手动点';
+  }
+
+  String identitySessionKey(String provider, {String? accountId}) {
+    final id = (accountId ?? '').trim();
+    if (id.isNotEmpty) {
+      return id;
+    }
+    final selected = identityLoginFor(provider)?.id.trim() ?? '';
+    if (selected.isNotEmpty) {
+      return selected;
+    }
+    return legacyIdentitySessionId(provider);
+  }
+
+  WebIdentitySnapshot? identitySessionFor(String? accountId) {
+    final id = (accountId ?? '').trim();
+    if (id.isEmpty) {
+      return null;
+    }
+    final snapshot = identitySessions[id];
+    return snapshot?.isConnected == true ? snapshot : null;
+  }
+
+  WebIdentitySnapshot? identitySessionForProvider(String provider) {
+    return identitySessionFor(identitySessionKey(provider));
+  }
+
+  bool identityWindowConnected(String provider, {String? accountId}) =>
+      identitySessionFor(identitySessionKey(provider, accountId: accountId))
+          ?.isConnected ==
+      true;
+
+  String identityWindowLabel(String provider, {String? accountId}) =>
+      _identityLabel(
+        identitySessionFor(identitySessionKey(provider, accountId: accountId)),
+      );
+
+  void _refreshProviderIdentityFields() {
+    googleIdentity = identitySessionForProvider(googleIdentityProvider);
+    githubIdentity = identitySessionForProvider(githubIdentityProvider);
+  }
+
+  Future<void> _persistIdentityState() async {
+    _refreshProviderIdentityFields();
+    await Future.wait([
+      VaultStorage.saveIdentitySessions(identitySessions),
+      VaultStorage.saveGoogleIdentity(googleIdentity),
+      VaultStorage.saveGitHubIdentity(githubIdentity),
+      VaultStorage.saveIdentityLogins(_identityLoginBundle()),
+    ]);
+    _bump();
+  }
+
+  Future<void> rememberIdentityLogin(IdentityLoginAccount account) async {
+    var next = account;
+    if (next.provider.isEmpty) {
+      return;
+    }
+    if (next.isEmpty) {
+      if (next.id.isNotEmpty) {
+        await forgetIdentityLogin(next.id);
+      }
+      return;
+    }
+    if (next.id.isEmpty) {
+      final username = next.username.trim().toLowerCase();
+      for (final existing in identityLogins) {
+        if (existing.provider == next.provider &&
+            existing.username.trim().toLowerCase() == username) {
+          next = next.copyWith(id: existing.id);
+          break;
+        }
+      }
+    }
+    if (next.id.isEmpty) {
+      next = next.copyWith(id: makeId('login'));
+    }
+    final index = identityLogins.indexWhere((item) => item.id == next.id);
+    if (index >= 0) {
+      identityLogins[index] = next;
+    } else {
+      identityLogins = [...identityLogins, next];
+    }
+    identityLoginSelectedIds[next.provider] = next.id;
+    _adoptLegacySession(next);
+    await _persistIdentityState();
+  }
+
+  Future<void> selectIdentityLogin(String provider, String id) async {
+    if (provider.isEmpty || id.isEmpty) {
+      return;
+    }
+    identityLoginSelectedIds[provider] = id;
+    await _persistIdentityState();
+  }
+
+  Future<void> forgetIdentityLogin(String id) async {
+    if (id.isEmpty) {
+      return;
+    }
+    IdentityLoginAccount? removed;
+    for (final account in identityLogins) {
+      if (account.id == id) {
+        removed = account;
+        break;
+      }
+    }
+    identityLogins = [
+      for (final account in identityLogins)
+        if (account.id != id) account,
+    ];
+    identityLoginSelectedIds.removeWhere(
+      (provider, selected) => selected == id,
+    );
+    final previous = identitySessions.remove(id);
+    final provider = (previous?.provider ?? removed?.provider ?? '').trim();
+    await expireWebIdentityCookies(previous);
+    if (provider.isNotEmpty) {
+      try {
+        await scrubIdentityWebViewCookies(provider);
+        final keepId =
+            identityLoginSelectedIds[provider] ??
+            (identityLoginsFor(provider).isEmpty
+                ? ''
+                : identityLoginsFor(provider).first.id);
+        if (keepId.isNotEmpty) {
+          await restoreWebIdentityCookies(identitySessionFor(keepId));
+        }
+      } catch (_) {}
+    }
+    await _persistIdentityState();
+  }
+
+  IdentityLoginBundle _identityLoginBundle() => IdentityLoginBundle(
+    accounts: identityLogins,
+    selectedIds: identityLoginSelectedIds,
+  );
+
+  void _adoptLegacySession(IdentityLoginAccount account) {
+    if (identitySessionFor(account.id) != null) {
+      return;
+    }
+    final legacy = identitySessions[legacyIdentitySessionId(account.provider)];
+    if (legacy?.isConnected != true) {
+      return;
+    }
+    final email = account.username.trim().toLowerCase();
+    final legacyEmail = legacy!.email.trim().toLowerCase();
+    final onlyOne = identityLoginsFor(account.provider).length == 1;
+    if (onlyOne ||
+        (email.isNotEmpty &&
+            (legacyEmail == email || legacyEmail.contains(email)))) {
+      identitySessions[account.id] = legacy.copyWith(accountId: account.id);
+      identitySessions.remove(legacyIdentitySessionId(account.provider));
+    }
+  }
+
+  void _migrateLegacyIdentitySession(
+    String provider,
+    WebIdentitySnapshot? snapshot,
+  ) {
+    if (snapshot?.isConnected != true) {
+      return;
+    }
+    if (identitySessions.values.any(
+      (item) => item.provider == provider && item.isConnected,
+    )) {
+      return;
+    }
+    final email = snapshot!.email.trim().toLowerCase();
+    final logins = identityLoginsFor(provider);
+    String? key;
+    for (final login in logins) {
+      final username = login.username.trim().toLowerCase();
+      if (username.isNotEmpty &&
+          (email == username ||
+              email.contains(username) ||
+              username.contains(email))) {
+        key = login.id;
+        break;
+      }
+    }
+    key ??= logins.length == 1 ? logins.first.id : null;
+    key ??= legacyIdentitySessionId(provider);
+    identitySessions[key] = snapshot.copyWith(accountId: key);
+  }
+
+  String identitySummaryLabel() {
+    final items = <String>[
+      for (final snapshot in identitySessions.values)
+        if (snapshot.isConnected) snapshot.label,
+    ];
+    return items.isEmpty ? '未连接' : items.toSet().join(' · ');
+  }
+
+  String _identityLabel(WebIdentitySnapshot? identity) {
+    if (identity == null || !identity.isConnected) {
+      return '未连接';
+    }
+    final email = identity.email.trim();
+    return email.isEmpty ? '已记住' : email;
+  }
+
+  String siteHostForAccount(Account account) =>
+      hostnameOf(account.baseUrl).trim().toLowerCase();
+
+  bool _accountMatchesSite(Account account, String? siteHost) {
+    if (siteHost == null || siteHost.trim().isEmpty) {
+      return true;
+    }
+    return siteHostForAccount(account) == siteHost.trim().toLowerCase();
+  }
+
+  Future<void> _persistPricingCatalogs() =>
+      VaultStorage.savePricingCatalogs(pricingCatalogs);
+
+  Future<void> _persistTokenGroupCache() =>
+      VaultStorage.saveTokenGroupCache(tokenGroups);
+
+  Future<void> _persistTokenModelCache() =>
+      VaultStorage.saveTokenModelCache(tokenModels);
+
+  Future<void> rememberIdentitySession(
+    WebIdentitySnapshot snapshot, {
+    String? accountId,
+  }) async {
+    final id = identitySessionKey(
+      snapshot.provider,
+      accountId: (accountId ?? snapshot.accountId).trim(),
+    );
+    final next = snapshot.copyWith(accountId: id);
+    if (next.isConnected) {
+      identitySessions[id] = next;
+    } else {
+      identitySessions.remove(id);
+    }
+    await restoreWebIdentityCookies(next.isConnected ? next : null);
+    await _persistIdentityState();
+  }
+
+  Future<void> forgetIdentitySession(
+    String provider, {
+    String? accountId,
+  }) async {
+    final id = identitySessionKey(provider, accountId: accountId);
+    final previous = identitySessions.remove(id);
+    await expireWebIdentityCookies(previous);
+    await _persistIdentityState();
+  }
+
+  Future<IdentitySessionFreshness> verifyIdentitySession(
+    String provider, {
+    String? accountId,
+    NetworkProxy? proxy,
+  }) async {
+    final id = identitySessionKey(provider, accountId: accountId);
+    final snapshot = identitySessionFor(id);
+    if (snapshot == null || !snapshot.isConnected) {
+      return IdentitySessionFreshness.missing;
+    }
+    final fresh = await runWithProxy(
+      proxy ?? resolvedProxy(settings.networkProxy),
+      () => probeIdentitySession(snapshot),
+    );
+    if (fresh == IdentitySessionFreshness.expired) {
+      await forgetIdentitySession(provider, accountId: id);
+    }
+    return fresh;
+  }
+
+  Future<void> rememberGoogleIdentity(
+    WebIdentitySnapshot snapshot, {
+    String? accountId,
+  }) => rememberIdentitySession(
+    snapshot.copyWith(provider: googleIdentityProvider),
+    accountId: accountId,
+  );
+
+  Future<void> forgetGoogleIdentity({String? accountId}) =>
+      forgetIdentitySession(googleIdentityProvider, accountId: accountId);
+
+  Future<void> rememberGitHubIdentity(
+    WebIdentitySnapshot snapshot, {
+    String? accountId,
+  }) => rememberIdentitySession(
+    snapshot.copyWith(provider: githubIdentityProvider),
+    accountId: accountId,
+  );
+
+  Future<void> forgetGitHubIdentity({String? accountId}) =>
+      forgetIdentitySession(githubIdentityProvider, accountId: accountId);
+
+  Future<SitePricingCatalog?> loadPricingCatalog(
+    String accountId, {
+    bool persistCatalogs = true,
+  }) async {
     final account = accountById(accountId);
     if (account == null || !accountSupportsModelCatalog(account)) {
-      pricingCatalogs.remove(accountId);
+      if (pricingCatalogs.remove(accountId) != null && persistCatalogs) {
+        await _persistPricingCatalogs();
+      }
       _bump();
-      return null;
+      return pricingCatalogs[accountId];
     }
     try {
       final catalog = await withAccountAuth(account, (session) async {
-        final pricing = await fetchSitePricing(
+        final pricingFuture = fetchSitePricing(
           account.baseUrl,
           session.accessToken,
           session.userId,
         );
-        var models = <String>[];
-        try {
-          models = await fetchGroupModels(
-            account.baseUrl,
-            session.accessToken,
-            session.userId,
-            '',
-          );
-        } catch (_) {}
-        try {
-          final groups = await fetchUserGroups(
-            account.baseUrl,
-            session.accessToken,
-            session.userId,
-          );
-          tokenGroups[account.id] = groups.isNotEmpty
-              ? groups
-              : fallbackGroups(account);
-        } catch (_) {
-          tokenGroups[account.id] =
-              tokenGroups[account.id] ?? fallbackGroups(account);
+        final modelsFuture = () async {
+          try {
+            return await fetchGroupModels(
+              account.baseUrl,
+              session.accessToken,
+              session.userId,
+              '',
+            );
+          } catch (_) {
+            return <String>[];
+          }
+        }();
+        final pricing = await pricingFuture;
+        final models = await modelsFuture;
+        if (models.isNotEmpty) {
+          tokenModels['$accountId:all'] = models;
         }
         return pricing.filteredToModels(models);
       });
       if (catalog.isEmpty) {
         pricingCatalogs.remove(accountId);
+        if (persistCatalogs) {
+          await _persistPricingCatalogs();
+        }
         _bump();
         return null;
       }
       pricingCatalogs[accountId] = catalog;
+      if (persistCatalogs) {
+        await _persistPricingCatalogs();
+        await _persistTokenModelCache();
+      }
       _bump();
       return catalog;
     } catch (error) {
-      pricingCatalogs.remove(accountId);
-      _bump();
       if (isAuthExpiredError(error)) {
         rethrow;
       }
-      return null;
+      return pricingCatalogs[accountId];
     }
   }
 
-  Future<void> loadAllPricingCatalogs() async {
+  Future<void> loadAllPricingCatalogs({bool force = false}) async {
     final targets = accounts.where(accountSupportsModelCatalog).toList();
+    var changed = force;
     await Future.wait(
       targets.map((account) async {
+        if (!force && pricingCatalogs.containsKey(account.id)) {
+          return;
+        }
+        changed = true;
         try {
-          await loadPricingCatalog(account.id);
+          await loadPricingCatalog(account.id, persistCatalogs: false);
         } catch (_) {}
       }),
     );
+    if (changed) {
+      await _persistPricingCatalogs();
+      await _persistTokenModelCache();
+    }
   }
 
-  Set<String> _comparableModelNameSet({String query = '', String? brandKey}) {
+  Set<String> _comparableModelNameSet({
+    String query = '',
+    String? brandKey,
+    String? siteHost,
+    bool useAccountGroup = false,
+  }) {
     final keyword = query.trim().toLowerCase();
     final names = <String>{};
     for (final account in accounts) {
-      if (!accountSupportsModelCatalog(account)) {
+      if (!accountSupportsModelCatalog(account) ||
+          !_accountMatchesSite(account, siteHost)) {
         continue;
       }
       final catalog = pricingCatalogs[account.id];
@@ -421,7 +792,17 @@ class VaultStore extends ChangeNotifier {
       }
       final priced = enrichCatalogGroups(catalog, groupsForAccount(account));
       for (final quote in priced.quotes) {
-        if (billingGroupsForQuote(priced, quote).isEmpty) {
+        final offers = offersForAccountModel(
+          account: account,
+          quote: quote,
+          catalog: priced,
+        );
+        if (pickOfferForAccount(
+              account: account,
+              offers: offers,
+              useAccountGroup: useAccountGroup,
+            ) ==
+            null) {
           continue;
         }
         if (keyword.isNotEmpty &&
@@ -439,15 +820,52 @@ class VaultStore extends ChangeNotifier {
     return names;
   }
 
+  List<(String, String)> comparableSites() {
+    final labels = <String, String>{};
+    for (final account in accounts) {
+      if (!accountSupportsModelCatalog(account) ||
+          pricingCatalogs[account.id] == null) {
+        continue;
+      }
+      final host = siteHostForAccount(account);
+      if (host.isEmpty) {
+        continue;
+      }
+      labels.putIfAbsent(host, () {
+        final name = account.siteName.trim();
+        final displayHost = hostnameOf(account.baseUrl);
+        if (name.isNotEmpty &&
+            name.toLowerCase() != displayHost.toLowerCase()) {
+          return name;
+        }
+        return displayHost.isNotEmpty ? displayHost : name;
+      });
+    }
+    final list = labels.entries.toList()
+      ..sort(
+        (left, right) =>
+            left.value.toLowerCase().compareTo(right.value.toLowerCase()),
+      );
+    return [for (final entry in list) (entry.key, entry.value)];
+  }
+
   List<(String, ModelCompareOffer, int)> comparableModelSummaries({
     String query = '',
     String? brandKey,
+    String? siteHost,
+    bool useAccountGroup = false,
   }) {
-    final names = _comparableModelNameSet(query: query, brandKey: brandKey);
+    final names = _comparableModelNameSet(
+      query: query,
+      brandKey: brandKey,
+      siteHost: siteHost,
+      useAccountGroup: useAccountGroup,
+    );
     final lowest = <String, ModelCompareOffer>{};
     final siteIds = <String, Set<String>>{};
     for (final account in accounts) {
-      if (!accountSupportsModelCatalog(account)) {
+      if (!accountSupportsModelCatalog(account) ||
+          !_accountMatchesSite(account, siteHost)) {
         continue;
       }
       final catalog = pricingCatalogForAccount(account);
@@ -463,47 +881,58 @@ class VaultStore extends ChangeNotifier {
           quote: quote,
           catalog: catalog,
         );
-        if (offers.isEmpty) {
+        final offer = pickOfferForAccount(
+          account: account,
+          offers: offers,
+          useAccountGroup: useAccountGroup,
+        );
+        if (offer == null) {
           continue;
         }
         siteIds.putIfAbsent(quote.modelName, () => {}).add(account.id);
-        for (final offer in offers) {
-          final current = lowest[quote.modelName];
-          if (current == null ||
-              offer.sortPrice < current.sortPrice ||
-              (offer.sortPrice == current.sortPrice &&
-                  offer.groupRatio < current.groupRatio)) {
-            lowest[quote.modelName] = offer;
-          }
+        final current = lowest[quote.modelName];
+        if (current == null || compareModelOffers(offer, current) < 0) {
+          lowest[quote.modelName] = offer;
         }
       }
     }
     final list = names.where((name) => lowest.containsKey(name)).toList();
     list.sort((left, right) {
-      final priceCmp = lowest[left]!.sortPrice.compareTo(lowest[right]!.sortPrice);
-      if (priceCmp != 0) {
-        return priceCmp;
-      }
-      final ratioCmp = lowest[left]!.groupRatio.compareTo(lowest[right]!.groupRatio);
-      if (ratioCmp != 0) {
-        return ratioCmp;
+      final cmp = compareModelOffers(lowest[left]!, lowest[right]!);
+      if (cmp != 0) {
+        return cmp;
       }
       return left.toLowerCase().compareTo(right.toLowerCase());
     });
     return [
-      for (final name in list) (name, lowest[name]!, siteIds[name]?.length ?? 0),
+      for (final name in list)
+        (name, lowest[name]!, siteIds[name]?.length ?? 0),
     ];
   }
 
-  List<String> comparableModelNames({String query = '', String? brandKey}) =>
-      comparableModelSummaries(
-        query: query,
-        brandKey: brandKey,
-      ).map((item) => item.$1).toList();
+  List<String> comparableModelNames({
+    String query = '',
+    String? brandKey,
+    String? siteHost,
+    bool useAccountGroup = false,
+  }) => comparableModelSummaries(
+    query: query,
+    brandKey: brandKey,
+    siteHost: siteHost,
+    useAccountGroup: useAccountGroup,
+  ).map((item) => item.$1).toList();
 
-  List<ModelBrand> comparableBrands({String query = ''}) {
+  List<ModelBrand> comparableBrands({
+    String query = '',
+    String? siteHost,
+    bool useAccountGroup = false,
+  }) {
     final seen = <String, ModelBrand>{};
-    for (final name in _comparableModelNameSet(query: query)) {
+    for (final name in _comparableModelNameSet(
+      query: query,
+      siteHost: siteHost,
+      useAccountGroup: useAccountGroup,
+    )) {
       final brand = detectModelBrand(name);
       seen[brand.key] = brand;
     }
@@ -528,10 +957,11 @@ class VaultStore extends ChangeNotifier {
     return enrichCatalogGroups(catalog, groupsForAccount(account));
   }
 
-  List<ModelCompareOffer> offersForModel(String modelName) {
+  List<ModelCompareOffer> offersForModel(String modelName, {String? siteHost}) {
     final offers = <ModelCompareOffer>[];
     for (final account in accounts) {
-      if (!accountSupportsModelCatalog(account)) {
+      if (!accountSupportsModelCatalog(account) ||
+          !_accountMatchesSite(account, siteHost)) {
         continue;
       }
       final catalog = pricingCatalogForAccount(account);
@@ -548,44 +978,46 @@ class VaultStore extends ChangeNotifier {
         offersForAccountModel(account: account, quote: quote, catalog: catalog),
       );
     }
-    offers.sort((left, right) {
-      final priceCmp = left.sortPrice.compareTo(right.sortPrice);
-      if (priceCmp != 0) {
-        return priceCmp;
-      }
-      final ratioCmp = left.groupRatio.compareTo(right.groupRatio);
-      if (ratioCmp != 0) {
-        return ratioCmp;
-      }
-      return left.group.compareTo(right.group);
-    });
+    sortModelCompareOffers(offers);
     return offers;
   }
 
-  List<(Account, List<ModelCompareOffer>)> sitesForModel(String modelName) {
+  List<(Account, List<ModelCompareOffer>)> sitesForModel(
+    String modelName, {
+    String? siteHost,
+    bool useAccountGroup = false,
+  }) {
     final grouped = <String, List<ModelCompareOffer>>{};
-    final order = <String>[];
-    for (final offer in offersForModel(modelName)) {
-      if (!grouped.containsKey(offer.accountId)) {
-        grouped[offer.accountId] = [];
-        order.add(offer.accountId);
-      }
-      grouped[offer.accountId]!.add(offer);
+    for (final offer in offersForModel(modelName, siteHost: siteHost)) {
+      grouped.putIfAbsent(offer.accountId, () => []).add(offer);
     }
-    final sites = <(Account, List<ModelCompareOffer>)>[];
-    for (final accountId in order) {
-      final account = accountById(accountId);
-      final groups = grouped[accountId];
-      if (account == null || groups == null || groups.isEmpty) {
+    final sites = <(Account, List<ModelCompareOffer>, ModelCompareOffer)>[];
+    for (final entry in grouped.entries) {
+      final account = accountById(entry.key);
+      final groups = entry.value;
+      if (account == null || groups.isEmpty) {
         continue;
       }
-      groups.sort((left, right) {
-        final ratioCmp = left.groupRatio.compareTo(right.groupRatio);
-        return ratioCmp != 0 ? ratioCmp : left.group.compareTo(right.group);
-      });
-      sites.add((account, groups));
+      sortModelCompareOffers(groups);
+      final view = pickOfferForAccount(
+        account: account,
+        offers: groups,
+        useAccountGroup: useAccountGroup,
+      );
+      if (view == null) {
+        continue;
+      }
+      sites.add((account, groups, view));
     }
-    return sites;
+    sites.sort((left, right) {
+      final cmp = compareModelOffers(left.$3, right.$3);
+      if (cmp != 0) {
+        return cmp;
+      }
+      return displayAccountName(left.$1)
+          .compareTo(displayAccountName(right.$1));
+    });
+    return [for (final site in sites) (site.$1, site.$2)];
   }
 
   bool _deferPersist = false;
@@ -605,6 +1037,10 @@ class VaultStore extends ChangeNotifier {
       VaultStorage.saveRevealedKeys(revealedKeys),
       VaultStorage.saveAccountPasswords(accountPasswords),
       VaultStorage.saveProxySecrets(_proxySecretsFromState()),
+      VaultStorage.saveGoogleIdentity(googleIdentity),
+      VaultStorage.saveGitHubIdentity(githubIdentity),
+      VaultStorage.saveIdentityLogins(_identityLoginBundle()),
+      VaultStorage.saveIdentitySessions(identitySessions),
     ]);
     _usageDirty = false;
   }
@@ -619,17 +1055,38 @@ class VaultStore extends ChangeNotifier {
     }
   }
 
-  ProxySecrets _proxySecretsFromState() => ProxySecrets(
-    global: settings.networkProxy.password,
-    accounts: {
-      for (final account in accounts)
-        if (account.proxy.password.isNotEmpty) account.id: account.proxy.password,
-    },
-  );
+  ProxySecrets _proxySecretsFromState() {
+    final solver = settings.captchaSolver;
+    return ProxySecrets(
+      global: settings.networkProxy.password,
+      captcha: solver.clientKey,
+      captchaKeys: {
+        for (final type in CaptchaSolverType.values)
+          if (solver.keyFor(type).isNotEmpty) type.name: solver.keyFor(type),
+      },
+      accounts: {
+        for (final account in accounts)
+          if (account.proxy.password.isNotEmpty)
+            account.id: account.proxy.password,
+      },
+    );
+  }
 
   void _applyProxySecrets(ProxySecrets secrets) {
     if (secrets.global.isNotEmpty) {
       settings.networkProxy.password = secrets.global;
+    }
+    if (secrets.captchaKeys.isNotEmpty) {
+      for (final entry in secrets.captchaKeys.entries) {
+        final type = tryCaptchaSolverType(entry.key);
+        if (type != null && entry.value.isNotEmpty) {
+          settings.captchaSolver.setKey(type, entry.value);
+        }
+      }
+    }
+    if (secrets.captcha.isNotEmpty &&
+        settings.captchaSolver.clientKey.isEmpty) {
+      settings.captchaSolver.clientKey = secrets.captcha;
     }
     for (final account in accounts) {
       final password = secrets.accounts[account.id];
@@ -646,6 +1103,10 @@ class VaultStore extends ChangeNotifier {
     accountPasswords[accountId] = password;
   }
 
+  String passwordForAccount(String accountId) {
+    return accountPasswords[accountId] ?? '';
+  }
+
   VaultSnapshot captureSnapshot() {
     return VaultSnapshot(
       exportedAt: DateTime.now().toUtc(),
@@ -657,6 +1118,9 @@ class VaultStore extends ChangeNotifier {
       checkinLogs: checkinLogs,
       usageLogs: usageLogs,
       settings: settings,
+      identityLogins: identityLogins,
+      identityLoginSelectedIds: identityLoginSelectedIds,
+      identitySessions: identitySessions,
     ).clone();
   }
 
@@ -676,6 +1140,21 @@ class VaultStore extends ChangeNotifier {
     usageLogs = next.usageLogs;
     _usageDirty = true;
     settings = next.settings.copyWith();
+    identityLogins = [
+      for (final account in next.identityLogins)
+        if (isOAuthIdentityProvider(account.provider) && !account.isEmpty)
+          account,
+    ];
+    identityLoginSelectedIds = Map<String, String>.from(
+      next.identityLoginSelectedIds,
+    );
+    identitySessions = {
+      for (final entry in next.identitySessions.entries)
+        if (entry.value.isConnected &&
+            isOAuthIdentityProvider(entry.value.provider))
+          entry.key: entry.value,
+    };
+    _refreshProviderIdentityFields();
     final liveIds = accounts.map((account) => account.id).toSet();
     if (selectedKeysAccountId != null &&
         !liveIds.contains(selectedKeysAccountId)) {
@@ -687,10 +1166,15 @@ class VaultStore extends ChangeNotifier {
       return !liveIds.contains(accountId);
     });
     pricingCatalogs.removeWhere((accountId, _) => !liveIds.contains(accountId));
-    accountPasswords.removeWhere((accountId, password) =>
-        !liveIds.contains(accountId) || password.isEmpty);
+    accountPasswords.removeWhere(
+      (accountId, password) => !liveIds.contains(accountId) || password.isEmpty,
+    );
     HttpRequestLogger.instance.setEnabled(settings.developerLogEnabled);
     await persist();
+    await restoreConnectedIdentityCookies(identitySessions.values);
+    await _persistPricingCatalogs();
+    await _persistTokenGroupCache();
+    await _persistTokenModelCache();
     _bump();
     return next;
   }
@@ -735,9 +1219,18 @@ class VaultStore extends ChangeNotifier {
 
   void applyUserSnapshot(Account account, NewApiUser user) {
     account.userId = '${user.id}';
-    account.username = user.username ?? account.username;
+    final nextUsername = user.username ?? account.username;
+    if (!keepMailboxLoginIdentity(account.username, nextUsername)) {
+      account.username = nextUsername;
+    }
     account.displayName = user.displayName ?? account.displayName;
-    account.email = user.email ?? '';
+    final nextEmail = (user.email ?? '').trim();
+    if (nextEmail.isNotEmpty) {
+      account.email = nextEmail;
+    } else if (account.email.trim().isEmpty &&
+        isMailboxLoginIdentity(account.username)) {
+      account.email = account.username.trim();
+    }
     account.group = user.group ?? 'default';
     account.quota = quotaToMoney(user.quota, account.quotaPerUnit);
     account.usedQuota = quotaToMoney(user.usedQuota, account.quotaPerUnit);
@@ -835,9 +1328,16 @@ class VaultStore extends ChangeNotifier {
     int? requestCount,
   }) {
     account.userId = '${user.id}';
-    account.username = user.username ?? account.username;
+    final nextUsername = user.username ?? account.username;
+    if (!keepMailboxLoginIdentity(account.username, nextUsername)) {
+      account.username = nextUsername;
+    }
     account.displayName = user.username ?? account.displayName;
     account.email = user.email ?? account.email;
+    if (account.email.trim().isEmpty &&
+        isMailboxLoginIdentity(account.username)) {
+      account.email = account.username.trim();
+    }
     account.quotaPerUnit = sub2QuotaPerUnit;
     account.quota = roundMoney(user.balance);
     account.usedQuota = roundMoney(usedQuota ?? account.usedQuota);
@@ -888,9 +1388,7 @@ class VaultStore extends ChangeNotifier {
       accountId: account.id,
       platformType: account.platformType,
       apiKeyId: log.tokenId != null ? '${account.id}:${log.tokenId}' : '',
-      apiKeyName: log.tokenName?.isNotEmpty == true
-          ? log.tokenName!
-          : '未命名密钥',
+      apiKeyName: log.tokenName?.isNotEmpty == true ? log.tokenName! : '未命名密钥',
       model: log.modelName?.isNotEmpty == true ? log.modelName! : '未知模型',
       time: time,
       quotaCost: resolveUsageQuotaCost(
@@ -1211,10 +1709,16 @@ class VaultStore extends ChangeNotifier {
     }
   }
 
-  Future<List<TokenGroupOption>> loadTokenGroups(String accountId) async {
+  Future<List<TokenGroupOption>> loadTokenGroups(
+    String accountId, {
+    bool force = false,
+  }) async {
     final account = accountById(accountId);
     if (account == null) {
       return [];
+    }
+    if (!force && tokenGroups.containsKey(accountId)) {
+      return tokenGroups[accountId]!;
     }
     try {
       final groups = await withAccountAuth(account, (session) async {
@@ -1227,20 +1731,25 @@ class VaultStore extends ChangeNotifier {
           session.userId,
         );
       });
-      tokenGroups[accountId] = groups.isNotEmpty
-          ? groups
-          : fallbackGroups(account);
+      if (groups.isNotEmpty) {
+        tokenGroups[accountId] = groups;
+        await _persistTokenGroupCache();
+      }
     } catch (error) {
-      tokenGroups[accountId] = fallbackGroups(account);
       if (isAuthExpiredError(error)) {
         rethrow;
       }
+      return tokenGroups[accountId] ?? fallbackGroups(account);
     }
     _bump();
-    return tokenGroups[accountId] ?? [];
+    return tokenGroups[accountId] ?? fallbackGroups(account);
   }
 
-  Future<List<String>> loadGroupModels(String accountId, String group) async {
+  Future<List<String>> loadGroupModels(
+    String accountId,
+    String group, {
+    bool force = false,
+  }) async {
     final account = accountById(accountId);
     final cacheKey = '$accountId:${group.isEmpty ? 'all' : group}';
     if (account == null) {
@@ -1250,8 +1759,11 @@ class VaultStore extends ChangeNotifier {
       tokenModels[cacheKey] = [];
       return [];
     }
+    if (!force && tokenModels.containsKey(cacheKey)) {
+      return tokenModels[cacheKey]!;
+    }
     try {
-      tokenModels[cacheKey] = await withAccountAuth(
+      final models = await withAccountAuth(
         account,
         (session) => fetchGroupModels(
           account.baseUrl,
@@ -1260,11 +1772,13 @@ class VaultStore extends ChangeNotifier {
           group,
         ),
       );
+      tokenModels[cacheKey] = models;
+      await _persistTokenModelCache();
     } catch (error) {
-      tokenModels[cacheKey] = tokenModels[cacheKey] ?? [];
       if (isAuthExpiredError(error)) {
         rethrow;
       }
+      return tokenModels[cacheKey] ?? [];
     }
     _bump();
     return tokenModels[cacheKey] ?? [];
@@ -1414,7 +1928,9 @@ class VaultStore extends ChangeNotifier {
               UsageLogQuery(
                 accountId: account.id,
                 page: fetchTop ? 1 : query.page,
-                pageSize: fetchTop ? need.clamp(query.pageSize, 100) : query.pageSize,
+                pageSize: fetchTop
+                    ? need.clamp(query.pageSize, 100)
+                    : query.pageSize,
                 type: account.platformType == PlatformType.sub2api
                     ? 2
                     : query.type,
@@ -1494,7 +2010,9 @@ class VaultStore extends ChangeNotifier {
       modelName: query.modelName.trim(),
       group: query.group.trim(),
     );
-    final items = page.items.map((log) => mapNewApiUsageLog(account, log)).toList();
+    final items = page.items
+        .map((log) => mapNewApiUsageLog(account, log))
+        .toList();
     final pageQuota = roundMoney(
       items.fold<double>(0, (sum, log) => sum + log.quotaCost),
     );
@@ -1536,7 +2054,9 @@ class VaultStore extends ChangeNotifier {
       endDate: window.endDate,
       model: query.modelName.trim(),
     );
-    final items = page.items.map((log) => mapSub2UsageLog(account, log)).toList();
+    final items = page.items
+        .map((log) => mapSub2UsageLog(account, log))
+        .toList();
     final pageQuota = roundMoney(
       items.fold<double>(0, (sum, log) => sum + log.quotaCost),
     );
@@ -1592,6 +2112,24 @@ class VaultStore extends ChangeNotifier {
       ),
     );
     settings = VaultStorage.loadSettings();
+    final loadedPricing = VaultStorage.loadPricingCatalogs();
+    loadedPricing.removeWhere((accountId, _) => !liveIds.contains(accountId));
+    pricingCatalogs
+      ..clear()
+      ..addAll(loadedPricing);
+    final loadedGroups = VaultStorage.loadTokenGroupCache();
+    loadedGroups.removeWhere((accountId, _) => !liveIds.contains(accountId));
+    tokenGroups
+      ..clear()
+      ..addAll(loadedGroups);
+    final loadedModels = VaultStorage.loadTokenModelCache();
+    loadedModels.removeWhere((key, _) {
+      final accountId = key.contains(':') ? key.split(':').first : key;
+      return !liveIds.contains(accountId);
+    });
+    tokenModels
+      ..clear()
+      ..addAll(loadedModels);
     final hadPlaintextProxy =
         settings.networkProxy.password.isNotEmpty ||
         liveAccounts.any((account) => account.proxy.password.isNotEmpty);
@@ -1631,6 +2169,26 @@ class VaultStore extends ChangeNotifier {
       }
       updateAccountStatus(account);
     }
+    final loadedLogins = await VaultStorage.loadIdentityLogins();
+    identityLogins = [
+      for (final account in loadedLogins.accounts)
+        if (isOAuthIdentityProvider(account.provider)) account,
+    ];
+    identityLoginSelectedIds = {
+      for (final entry in loadedLogins.selectedIds.entries)
+        if (isOAuthIdentityProvider(entry.key)) entry.key: entry.value,
+    };
+    identitySessions = await VaultStorage.loadIdentitySessions();
+    identitySessions.removeWhere(
+      (id, snapshot) => !isOAuthIdentityProvider(snapshot.provider),
+    );
+    googleIdentity = await VaultStorage.loadGoogleIdentity();
+    githubIdentity = await VaultStorage.loadGitHubIdentity();
+    await VaultStorage.clearQqMailIdentity();
+    _migrateLegacyIdentitySession(googleIdentityProvider, googleIdentity);
+    _migrateLegacyIdentitySession(githubIdentityProvider, githubIdentity);
+    _refreshProviderIdentityFields();
+    await restoreConnectedIdentityCookies([googleIdentity, githubIdentity]);
     hydrated = true;
     if (hadPlaintextProxy) {
       await persist();
@@ -1641,38 +2199,39 @@ class VaultStore extends ChangeNotifier {
   Future<bool>? _refreshInFlight;
 
   Future<bool> refreshAllAccounts() {
-    return _refreshInFlight ??= () async {
-      isRefreshing = true;
-      _bump();
-      try {
-        await _withDeferredPersist(() async {
-          await Future.wait(
-            accounts
-                .where((account) {
-                  if (account.status == AccountStatus.disabled ||
-                      account.status == AccountStatus.pending) {
-                    return false;
-                  }
-                  return sessionByAccount(account.id) != null;
-                })
-                .map(
-                  (account) =>
-                      syncAccount(account.id).catchError((_) => account),
-                ),
-          );
+    return _refreshInFlight ??=
+        () async {
+          isRefreshing = true;
+          _bump();
+          try {
+            await _withDeferredPersist(() async {
+              await Future.wait(
+                accounts
+                    .where((account) {
+                      if (account.status == AccountStatus.disabled ||
+                          account.status == AccountStatus.pending) {
+                        return false;
+                      }
+                      return sessionByAccount(account.id) != null;
+                    })
+                    .map(
+                      (account) =>
+                          syncAccount(account.id).catchError((_) => account),
+                    ),
+              );
+            });
+            return true;
+          } finally {
+            isRefreshing = false;
+            _refreshInFlight = null;
+            _bump();
+          }
+        }().then((ok) {
+          if (ok) {
+            notifyQuotaAlerts();
+          }
+          return ok;
         });
-        return true;
-      } finally {
-        isRefreshing = false;
-        _refreshInFlight = null;
-        _bump();
-      }
-    }().then((ok) {
-      if (ok) {
-        notifyQuotaAlerts();
-      }
-      return ok;
-    });
   }
 
   Future<CheckinLog?> checkinAccount(String accountId) async {
@@ -1715,8 +2274,7 @@ class VaultStore extends ChangeNotifier {
     try {
       final result = await withAccountAuth(
         account,
-        (session) =>
-            doCheckin(account.baseUrl, session.accessToken, session.userId),
+        (session) => _doCheckinWithTurnstile(account, session),
       );
       final reward = quotaToMoney(result.quotaAwarded, account.quotaPerUnit);
       final log = _checkinLogForAccount(
@@ -1746,6 +2304,54 @@ class VaultStore extends ChangeNotifier {
         success: false,
         message: userFacingError(error, '签到失败'),
       );
+    }
+  }
+
+  Future<({double quotaAwarded, String message})> _doCheckinWithTurnstile(
+    Account account,
+    AccountSession session,
+  ) async {
+    var token = '';
+    try {
+      token = (await solveNewApiTurnstileForSite(account.baseUrl)) ?? '';
+    } on ApiError catch (error) {
+      if (error.message.contains('验证码服务')) {
+        rethrow;
+      }
+    } catch (_) {}
+
+    Future<({double quotaAwarded, String message})> submit(String value) {
+      return doCheckin(
+        account.baseUrl,
+        session.accessToken,
+        session.userId,
+        turnstileToken: value,
+      );
+    }
+
+    try {
+      return await submit(token);
+    } catch (error) {
+      if (!looksLikeTurnstileRequired(error)) {
+        rethrow;
+      }
+      final retry =
+          (await solveNewApiTurnstileForSite(
+            account.baseUrl,
+            ignoreDisabled: true,
+          )) ??
+          '';
+      if (retry.isEmpty) {
+        throw ApiError('该站点签到需要过人机验证。请到「我的 → 验证码服务」开启并填好 ClientKey');
+      }
+      try {
+        return await submit(retry);
+      } catch (retryError) {
+        if (looksLikeTurnstileRequired(retryError)) {
+          throw ApiError('人机验证未通过，签到失败。请到「我的 → 验证码服务」确认 Key 和余额后重试');
+        }
+        rethrow;
+      }
     }
   }
 
@@ -1814,6 +2420,10 @@ class VaultStore extends ChangeNotifier {
       platformType: account.platformType,
       authMode: account.authMode,
       username: account.username,
+      password: passwordForAccount(account.id),
+      accessToken: visibleLoginAccessToken(
+        sessionByAccount(account.id)?.accessToken ?? '',
+      ),
       userId: account.userId,
       tags: [...account.tags],
       topupRatio: account.topupRatio,
@@ -1827,8 +2437,14 @@ class VaultStore extends ChangeNotifier {
     final now = isoNow();
     final existing = draft.id == null ? null : accountById(draft.id!);
     final baseUrl = normalizeBaseUrl(draft.baseUrl);
+    final existingToken = existing == null
+        ? ''
+        : (sessionByAccount(existing.id)?.accessToken ?? '').trim();
+    final submittedToken = draft.accessToken.trim();
+    final hasNewAccessToken =
+        submittedToken.isNotEmpty && submittedToken != existingToken;
     final hasFreshCredentials =
-        draft.accessToken.trim().isNotEmpty ||
+        hasNewAccessToken ||
         (draft.platformType == PlatformType.sub2api
             ? (draft.username.trim().isNotEmpty && draft.password.isNotEmpty)
             : draft.authMode == AuthMode.accessToken
@@ -1838,7 +2454,7 @@ class VaultStore extends ChangeNotifier {
       throw ApiError(
         draft.platformType == PlatformType.sub2api ||
                 draft.authMode == AuthMode.password
-            ? '请在站点登录页完成登录'
+            ? '请填写用户名和密码后自动登录'
             : '请填写访问令牌',
       );
     }
@@ -1887,11 +2503,16 @@ class VaultStore extends ChangeNotifier {
 
     if (hasFreshCredentials || (connected?.accessToken.isEmpty ?? true)) {
       if (draft.platformType == PlatformType.sub2api) {
+        var turnstileToken = draft.turnstileToken;
+        if ((turnstileToken == null || turnstileToken.trim().isEmpty) &&
+            draft.accessToken.trim().isEmpty) {
+          turnstileToken = await solveTurnstileForSite(baseUrl);
+        }
         final sub2 = await connectSub2Account(
           baseUrl: baseUrl,
           email: draft.username,
           password: draft.password,
-          turnstileToken: draft.turnstileToken,
+          turnstileToken: turnstileToken,
           accessToken: draft.accessToken,
           refreshToken: draft.refreshToken,
         );
@@ -1913,6 +2534,12 @@ class VaultStore extends ChangeNotifier {
           systemName: sub2.settings.siteName ?? '',
         );
       } else {
+        var loginTurnstileToken = '';
+        if (draft.accessToken.trim().isEmpty &&
+            draft.authMode == AuthMode.password) {
+          loginTurnstileToken =
+              (await solveNewApiTurnstileForSite(baseUrl)) ?? '';
+        }
         connected = await connectAccount(
           baseUrl: baseUrl,
           username: draft.username,
@@ -1921,21 +2548,42 @@ class VaultStore extends ChangeNotifier {
               ? draft.accessToken
               : null,
           userId: draft.userId.isNotEmpty ? draft.userId : existing?.userId,
+          turnstileToken: loginTurnstileToken,
         );
       }
     }
 
     final ready = connected!;
+    final cookies = mergeCookies([draft.cookies, ready.cookies]);
+    var accessToken = ready.accessToken;
+    if (draft.issueLoginAccessToken &&
+        draft.platformType != PlatformType.sub2api) {
+      accessToken = await ensureIssuedAccessToken(
+        baseUrl: ready.baseUrl,
+        accessToken: accessToken,
+        cookies: cookies,
+        userId: '${ready.user.id}',
+      );
+      if (newApiAccessTokenIsFresh(accessToken)) {
+        draft.authMode = AuthMode.accessToken;
+      }
+    }
     final siteName = draft.siteName.trim().isNotEmpty
         ? draft.siteName.trim()
         : (ready.systemName.trim().isNotEmpty
               ? ready.systemName.trim()
               : hostnameOf(ready.baseUrl));
+    final loginUsername = preferMailboxLoginIdentity(
+      draft.username,
+      ready.user.username,
+    );
     final alias = draft.alias.trim().isNotEmpty
         ? draft.alias.trim()
-        : (ready.user.displayName?.isNotEmpty == true
-              ? ready.user.displayName!
-              : (ready.user.username ?? siteName));
+        : (isMailboxLoginIdentity(loginUsername)
+              ? mailboxLocalPart(loginUsername)
+              : (ready.user.displayName?.isNotEmpty == true
+                    ? ready.user.displayName!
+                    : (ready.user.username ?? siteName)));
 
     if (existing != null) {
       existing.alias = alias;
@@ -1953,16 +2601,12 @@ class VaultStore extends ChangeNotifier {
       existing.updatedAt = now;
       final session = sessionByAccount(existing.id);
       if (session != null) {
-        session.accessToken = ready.accessToken;
+        session.accessToken = accessToken;
         session.userId = '${ready.user.id}';
         if (ready.refreshToken.isNotEmpty) {
           session.refreshToken = ready.refreshToken;
         }
-        final nextCookies = mergeCookies([
-          session.cookies,
-          draft.cookies,
-          ready.cookies,
-        ]);
+        final nextCookies = mergeCookies([session.cookies, cookies]);
         if (nextCookies.isNotEmpty) {
           session.cookies = nextCookies;
         }
@@ -1970,19 +2614,26 @@ class VaultStore extends ChangeNotifier {
         sessions.add(
           AccountSession(
             accountId: existing.id,
-            accessToken: ready.accessToken,
+            accessToken: accessToken,
             userId: '${ready.user.id}',
             refreshToken: ready.refreshToken.isEmpty
                 ? null
                 : ready.refreshToken,
-            cookies: mergeCookies([draft.cookies, ready.cookies]),
+            cookies: cookies,
           ),
         );
       }
       if (hasFreshCredentials) {
         applyUserSnapshot(existing, ready.user);
       }
+      if (isMailboxLoginIdentity(loginUsername)) {
+        existing.username = loginUsername;
+        if (existing.email.trim().isEmpty) {
+          existing.email = loginUsername;
+        }
+      }
       _rememberPassword(existing.id, draft.password);
+      await persist();
       await syncAccount(existing.id);
       await persist();
       _bump();
@@ -1997,9 +2648,11 @@ class VaultStore extends ChangeNotifier {
       platformType: draft.platformType,
       authMode: draft.authMode,
       userId: '${ready.user.id}',
-      username: ready.user.username ?? draft.username.trim(),
+      username: loginUsername,
       displayName: ready.user.displayName ?? '',
-      email: ready.user.email ?? '',
+      email: (ready.user.email ?? '').trim().isNotEmpty
+          ? ready.user.email!.trim()
+          : (isMailboxLoginIdentity(loginUsername) ? loginUsername : ''),
       group: ready.user.group ?? 'default',
       quota: quotaToMoney(ready.user.quota, ready.quotaPerUnit),
       usedQuota: quotaToMoney(ready.user.usedQuota, ready.quotaPerUnit),
@@ -2019,17 +2672,24 @@ class VaultStore extends ChangeNotifier {
       updatedAt: now,
     );
     applyUserSnapshot(account, ready.user);
+    if (isMailboxLoginIdentity(loginUsername)) {
+      account.username = loginUsername;
+      if (account.email.trim().isEmpty) {
+        account.email = loginUsername;
+      }
+    }
     accounts = [account, ...accounts];
     _rememberPassword(account.id, draft.password);
     sessions.add(
       AccountSession(
         accountId: account.id,
-        accessToken: ready.accessToken,
+        accessToken: accessToken,
         userId: '${ready.user.id}',
         refreshToken: ready.refreshToken.isEmpty ? null : ready.refreshToken,
-        cookies: mergeCookies([draft.cookies, ready.cookies]),
+        cookies: cookies,
       ),
     );
+    await persist();
     await syncAccount(account.id);
     await persist();
     _bump();
@@ -2078,7 +2738,8 @@ class VaultStore extends ChangeNotifier {
   }
 
   Future<void> deleteAccount(String accountId) async {
-    accounts = accounts.where((account) => account.id != accountId).toList();
+    final account = accountById(accountId);
+    accounts = accounts.where((item) => item.id != accountId).toList();
     sessions = sessions
         .where((session) => session.accountId != accountId)
         .toList();
@@ -2094,6 +2755,17 @@ class VaultStore extends ChangeNotifier {
     tokenGroups.remove(accountId);
     tokenModels.removeWhere((key, _) => key.startsWith('$accountId:'));
     await persist();
+    await _persistPricingCatalogs();
+    await _persistTokenGroupCache();
+    await _persistTokenModelCache();
+    if (account != null) {
+      try {
+        await clearSiteWebViewState(
+          account.baseUrl,
+          extraUrls: account.apiUrls,
+        );
+      } catch (_) {}
+    }
     _bump();
   }
 
@@ -2160,10 +2832,16 @@ class VaultStore extends ChangeNotifier {
     final existing = draft.id == null ? null : apiKeyById(draft.id!);
     await withAccountAuth(account, (session) async {
       if (account.platformType == PlatformType.sub2api) {
-        final groups = await loadTokenGroups(account.id);
-        final selectedGroup = groups
+        var groups = await loadTokenGroups(account.id);
+        var selectedGroup = groups
             .where((group) => group.name == draft.group)
             .firstOrNull;
+        if (selectedGroup?.remoteId == null) {
+          groups = await loadTokenGroups(account.id, force: true);
+          selectedGroup = groups
+              .where((group) => group.name == draft.group)
+              .firstOrNull;
+        }
         final remainQuota = draft.unlimitedQuota
             ? 0
             : num.tryParse(draft.remainQuota) ?? 0;
@@ -2363,7 +3041,9 @@ class VaultStore extends ChangeNotifier {
     if (urls.isEmpty) {
       throw ApiError('没有可测试的 API 地址');
     }
-    final target = baseUrl != null && urls.contains(baseUrl) ? baseUrl : urls.first;
+    final target = baseUrl != null && urls.contains(baseUrl)
+        ? baseUrl
+        : urls.first;
     final models = await runWithProxy(resolvedProxy(account.proxy), () async {
       var list = <String>[];
       Object? listError;
@@ -2392,7 +3072,9 @@ class VaultStore extends ChangeNotifier {
         }
         throw ApiError(describeKeyProbeError(listError));
       }
-      list.sort((left, right) => left.toLowerCase().compareTo(right.toLowerCase()));
+      list.sort(
+        (left, right) => left.toLowerCase().compareTo(right.toLowerCase()),
+      );
       return list;
     });
     return KeyTestPrep(
@@ -2421,6 +3103,52 @@ class VaultStore extends ChangeNotifier {
         allowExpensive: allowExpensive,
         protocol: protocol,
       ),
+    );
+  }
+
+  Future<void> saveCaptchaSolver(CaptchaSolverSettings next) async {
+    settings.captchaSolver = next.copy();
+    await persist();
+    _bump();
+  }
+
+  Future<String?> solveTurnstileForSite(String baseUrl) async {
+    final solver = settings.captchaSolver;
+    final publicSettings = await fetchPublicSettings(baseUrl);
+    final siteKey = publicSettings.turnstileSiteKey?.trim() ?? '';
+    if (!publicSettings.turnstileEnabled || siteKey.isEmpty) {
+      return null;
+    }
+    if (!solver.configured) {
+      throw ApiError('该站点需要过人机验证。请到「我的 → 验证码服务」开启并填好 ClientKey');
+    }
+    return solveTurnstile(
+      settings: solver,
+      websiteUrl: joinUrl(baseUrl, '/login'),
+      websiteKey: siteKey,
+    );
+  }
+
+  Future<String?> solveNewApiTurnstileForSite(
+    String baseUrl, {
+    bool ignoreDisabled = false,
+  }) async {
+    final solver = settings.captchaSolver;
+    final registerSettings = await fetchNewApiRegisterSettings(baseUrl);
+    final siteKey = registerSettings.turnstileSiteKey;
+    if (siteKey.isEmpty) {
+      return null;
+    }
+    if (!ignoreDisabled && !registerSettings.turnstileEnabled) {
+      return null;
+    }
+    if (!solver.configured) {
+      throw ApiError('该站点需要过人机验证。请到「我的 → 验证码服务」开启并填好 ClientKey');
+    }
+    return solveTurnstile(
+      settings: solver,
+      websiteUrl: joinUrl(baseUrl, '/login'),
+      websiteKey: siteKey,
     );
   }
 
@@ -2482,7 +3210,9 @@ class VaultStore extends ChangeNotifier {
     updateCheckError = null;
     _bump();
     try {
-      final proxy = settings.networkProxy.isConfigured ? settings.networkProxy : null;
+      final proxy = settings.networkProxy.isConfigured
+          ? settings.networkProxy
+          : null;
       final release = await runWithProxy(proxy, fetchLatestGithubRelease);
       latestRelease = release;
       if (notifyIfAvailable &&

@@ -5,7 +5,6 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:vault/app/models/domain.dart';
 import 'package:vault/app/modules/vault_store.dart';
-import 'package:vault/screens/account_form_screen.dart';
 import 'package:vault/screens/accounts_screen.dart';
 import 'package:vault/screens/dashboard_screen.dart';
 import 'package:vault/screens/key_form_screen.dart';
@@ -14,6 +13,7 @@ import 'package:vault/screens/logs_screen.dart';
 import 'package:vault/screens/profile_screen.dart';
 import 'package:vault/screens/theme_define.dart';
 import 'package:vault/screens/themes.dart';
+import 'package:vault/screens/widgets/account_connect_menu.dart';
 import 'package:vault/screens/widgets/tab_icon.dart';
 import 'package:vault/screens/widgets/ui.dart';
 
@@ -54,8 +54,7 @@ class _HomeShellState extends State<HomeShell> {
   }
 
   void _openCreate() {
-    Navigator.of(context)
-        .push(MaterialPageRoute(builder: (_) => const AccountFormScreen()));
+    showAccountConnectMenu(context);
   }
 
   @override
@@ -77,11 +76,11 @@ class _HomeShellState extends State<HomeShell> {
     switch (_tab) {
       case 0:
         title = const BrandMark(size: 41);
-        actions = [HeaderPill(label: '添加账号', onPressed: _openCreate)];
+        actions = [HeaderPlusAction(onPressed: _openCreate, tooltip: '添加')];
         break;
       case 1:
         title = const YuconHeaderTitle(title: '账号', subtitle: '管理已连接的站点账号');
-        actions = [HeaderPill(label: '添加账号', onPressed: _openCreate)];
+        actions = [HeaderPlusAction(onPressed: _openCreate, tooltip: '添加')];
         break;
       case 2:
         title = const YuconHeaderTitle(title: '密钥管理', subtitle: '按账号查看和复制密钥');

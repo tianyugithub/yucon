@@ -42,7 +42,7 @@ void main() {
     expect(find.text('1,200'), findsOneWidget);
     expect(find.text('34'), findsOneWidget);
     expect(find.text('1,234'), findsOneWidget);
-    expect(find.text('tokens'), findsWidgets);
     expect(find.text('gpt-4o-mini'), findsOneWidget);
+    expect(find.text('成功'), findsOneWidget);
   });
 }

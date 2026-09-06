@@ -1,23 +1,81 @@
 import 'package:vault/app/api/http.dart';
+import 'package:vault/app/api/newapi.dart';
 import 'package:vault/app/models/domain.dart';
+import 'package:vault/app/utils/quota.dart';
 
 class Sub2PublicSettings {
   Sub2PublicSettings({
     this.turnstileEnabled = false,
     this.turnstileSiteKey,
     this.siteName,
+    this.registrationEnabled = true,
+    this.emailVerifyEnabled = false,
+    this.emailSuffixWhitelist = const [],
   });
 
   final bool turnstileEnabled;
   final String? turnstileSiteKey;
   final String? siteName;
+  final bool registrationEnabled;
+  final bool emailVerifyEnabled;
+  final List<String> emailSuffixWhitelist;
 
-  factory Sub2PublicSettings.fromJson(Map<String, dynamic> json) =>
-      Sub2PublicSettings(
-        turnstileEnabled: json['turnstile_enabled'] == true,
-        turnstileSiteKey: json['turnstile_site_key']?.toString(),
-        siteName: json['site_name']?.toString(),
-      );
+  factory Sub2PublicSettings.fromJson(Map<String, dynamic> json) {
+    final data = _unwrap(json);
+    final siteName = data['site_name']?.toString().trim();
+    final whitelist = data['registration_email_suffix_whitelist'];
+    return Sub2PublicSettings(
+      turnstileEnabled: data['turnstile_enabled'] == true,
+      turnstileSiteKey: data['turnstile_site_key']?.toString(),
+      siteName: (siteName == null || siteName.isEmpty) ? null : siteName,
+      registrationEnabled: data['registration_enabled'] != false,
+      emailVerifyEnabled: data['email_verify_enabled'] == true,
+      emailSuffixWhitelist: whitelist is List
+          ? [
+              for (final item in whitelist)
+                if (item.toString().trim().isNotEmpty) item.toString().trim(),
+            ]
+          : const [],
+    );
+  }
+
+  static Map<String, dynamic> _unwrap(Map<String, dynamic> json) {
+    final nested = json['data'];
+    if (nested is Map &&
+        (nested.containsKey('site_name') ||
+            nested.containsKey('turnstile_enabled') ||
+            nested.containsKey('turnstile_site_key'))) {
+      return asRecord(nested);
+    }
+    return json;
+  }
+}
+
+bool _looksLikeSub2PublicSettings(Map<String, dynamic> json) {
+  return json.containsKey('turnstile_enabled') ||
+      json.containsKey('turnstile_site_key') ||
+      json.containsKey('site_name');
+}
+
+SiteStatus siteStatusFromSub2Settings(Sub2PublicSettings settings) {
+  return SiteStatus(
+    quotaPerUnit: defaultQuotaPerUnit,
+    checkinEnabled: false,
+    systemName: settings.siteName?.trim() ?? '',
+  );
+}
+
+Future<SiteStatus> fetchSub2SiteStatus(String baseUrl) async {
+  try {
+    final settings = await fetchPublicSettings(baseUrl);
+    return siteStatusFromSub2Settings(settings);
+  } catch (_) {
+    return SiteStatus(
+      quotaPerUnit: defaultQuotaPerUnit,
+      checkinEnabled: false,
+      systemName: '',
+    );
+  }
 }
 
 class Sub2User {
@@ -236,6 +294,12 @@ String friendlySub2Message(String message, [String reason = '']) {
   if (text.contains('turnstile') || reason == 'TURNSTILE_VERIFICATION_FAILED') {
     return '请先完成页面上的人机验证后再试。';
   }
+  if (text.contains('already exist') ||
+      text.contains('already taken') ||
+      text.contains('已被注册') ||
+      text.contains('已存在')) {
+    return '这个邮箱已经注册过。请直接用已有账号登录，或换一个邮箱注册';
+  }
   if (text.contains('invalid') &&
       (text.contains('credential') ||
           text.contains('password') ||
@@ -282,20 +346,34 @@ Future<T> requestSub2<T>({
   }
 }
 
-Future<Sub2PublicSettings> fetchPublicSettings(String baseUrl) async {
+Future<Sub2PublicSettings> _readPublicSettings(
+  String baseUrl,
+  String path,
+) async {
   final payload = await requestJson<Map<String, dynamic>>(
     baseUrl: baseUrl,
-    path: '/api/v1/settings/public',
+    path: path,
   );
-  if (payload.containsKey('turnstile_enabled')) {
+  if (_looksLikeSub2PublicSettings(payload)) {
     return Sub2PublicSettings.fromJson(payload);
   }
   if (payload['code'] is num && payload['code'] != 0) {
     throw ApiError(
-      friendlySub2Message(payload['message']?.toString() ?? '无法读取站点设置', payload['reason']?.toString() ?? ''),
+      friendlySub2Message(
+        payload['message']?.toString() ?? '无法读取站点设置',
+        payload['reason']?.toString() ?? '',
+      ),
     );
   }
   return Sub2PublicSettings.fromJson(asRecord(payload['data']));
+}
+
+Future<Sub2PublicSettings> fetchPublicSettings(String baseUrl) async {
+  try {
+    return await _readPublicSettings(baseUrl, '/api/v1/settings/public');
+  } catch (_) {
+    return _readPublicSettings(baseUrl, '/api/v1/public/settings');
+  }
 }
 
 Future<Sub2User> fetchCurrentSub2User(String baseUrl, String accessToken) async =>
@@ -565,5 +643,124 @@ Future<Sub2ConnectResult> connectSub2Account({
     refreshToken: data['refresh_token']?.toString() ?? '',
     user: user,
     settings: settings,
+  );
+}
+
+class Sub2RegisterOutcome {
+  const Sub2RegisterOutcome({
+    required this.accessToken,
+    required this.refreshToken,
+    this.user,
+  });
+
+  final String accessToken;
+  final String refreshToken;
+  final Sub2User? user;
+}
+
+String describeSub2RegisterError(String message, [String reason = '']) {
+  final text = '$reason $message';
+  final lower = text.toLowerCase();
+  if (lower.contains('turnstile') || reason == 'TURNSTILE_VERIFICATION_FAILED') {
+    return '人机验证未通过，请重试';
+  }
+  if (RegExp(r'already exists|already taken|已被注册|已存在|已被占用').hasMatch(lower)) {
+    return '这个邮箱已经注册过，请直接用已有账号登录';
+  }
+  if (lower.contains('verify_code') || lower.contains('verification') || lower.contains('验证码')) {
+    return '验证码不正确或已过期';
+  }
+  if (lower.contains('suffix') || lower.contains('not allowed') || lower.contains('不允许')) {
+    return '站点不允许这个邮箱后缀注册';
+  }
+  if (lower.contains('register') && (lower.contains('disabled') || lower.contains('closed'))) {
+    return '该站点已关闭注册';
+  }
+  if (lower.contains('password')) {
+    return '密码不符合站点要求，请重试';
+  }
+  if (lower.contains('email')) {
+    return '邮箱无效或站点不接受这个邮箱';
+  }
+  final trimmed = text.trim();
+  return trimmed.isEmpty ? '注册失败，请稍后重试' : trimmed;
+}
+
+Future<void> sendSub2VerifyCode({
+  required String baseUrl,
+  required String email,
+  String? turnstileToken,
+}) async {
+  final payload = await requestJsonDetailed<Map<String, dynamic>>(
+    baseUrl: normalizeBaseUrl(baseUrl),
+    path: '/api/v1/auth/send-verify-code',
+    method: 'POST',
+    data: {
+      'email': email.trim(),
+      if (turnstileToken != null && turnstileToken.trim().isNotEmpty)
+        'turnstile_token': turnstileToken.trim(),
+    },
+  );
+  final record = payload.data;
+  final code = record['code'];
+  if (code is num && code != 0) {
+    throw ApiError(
+      friendlySub2Message(
+        record['message']?.toString() ?? '发送验证码失败',
+        record['reason']?.toString() ?? '',
+      ),
+      payload.status,
+    );
+  }
+}
+
+Future<Sub2RegisterOutcome> registerSub2Account({
+  required String baseUrl,
+  required String email,
+  required String password,
+  String? verifyCode,
+  String? turnstileToken,
+}) async {
+  Map<String, dynamic> record;
+  int status;
+  try {
+    final payload = await requestJsonDetailed<Map<String, dynamic>>(
+      baseUrl: normalizeBaseUrl(baseUrl),
+      path: '/api/v1/auth/register',
+      method: 'POST',
+      data: {
+        'email': email.trim(),
+        'password': password,
+        if (verifyCode != null && verifyCode.trim().isNotEmpty)
+          'verify_code': verifyCode.trim(),
+        if (turnstileToken != null && turnstileToken.trim().isNotEmpty)
+          'turnstile_token': turnstileToken.trim(),
+      },
+    );
+    record = payload.data;
+    status = payload.status;
+  } on ApiError catch (error) {
+    throw ApiError(describeSub2RegisterError(error.message), error.status);
+  }
+  final code = record['code'];
+  if (code is num && code != 0) {
+    throw ApiError(
+      describeSub2RegisterError(
+        record['message']?.toString() ?? '注册失败',
+        record['reason']?.toString() ?? '',
+      ),
+      status,
+    );
+  }
+  final data = asRecord(record['data']);
+  final token = (data['access_token'] ?? '').toString().trim();
+  if (data.isEmpty || token.isEmpty) {
+    throw ApiError('站点没有返回登录凭证，注册可能未完成，请稍后用邮箱密码登录');
+  }
+  final userRecord = asRecord(data['user']);
+  return Sub2RegisterOutcome(
+    accessToken: token,
+    refreshToken: data['refresh_token']?.toString() ?? '',
+    user: userRecord.isEmpty ? null : Sub2User.fromJson(userRecord),
   );
 }

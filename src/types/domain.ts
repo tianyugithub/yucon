@@ -1,4 +1,4 @@
-export type PlatformType = 'newapi' | 'oneapi' | 'sub2api'
+export type PlatformType = 'newapi' | 'sub2api'
 
 export type AccountStatus = 'active' | 'low' | 'disabled' | 'pending' | 'expired'
 
@@ -20,6 +20,7 @@ export interface PlatformPreset {
   supportsCrossGroupRetry: boolean
   identityLabel: string
   identityPlaceholder: string
+  iconAsset: string
 }
 
 export interface BalancePoint {

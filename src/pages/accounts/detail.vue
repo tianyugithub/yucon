@@ -138,9 +138,11 @@ const goAccounts = (): void => {
 
     <view class="yc-content account-detail">
       <view class="account-detail__hero">
-        <view class="account-detail__avatar" :style="{ background: preset.color }">
-          {{ preset.shortLabel }}
-        </view>
+        <image
+          class="account-detail__avatar"
+          :src="preset.iconAsset"
+          mode="aspectFill"
+        />
         <view class="account-detail__identity">
           <view class="account-detail__name-row">
             <text class="account-detail__name">{{ account.alias }}</text>
@@ -152,7 +154,7 @@ const goAccounts = (): void => {
 
       <view v-if="account.status === 'expired'" class="account-detail__expired yc-card">
         <text class="account-detail__expired-title">登录已过期</text>
-        <text class="account-detail__expired-copy">站点会话失效后无法同步额度、Key 和日志。重新登录后会换发新令牌。</text>
+        <text class="account-detail__expired-copy">站点会话失效后无法同步额度、Key 和日志。请到编辑页填写用户名和密码后自动登录。</text>
         <NutButton
           class="account-detail__expired-action"
           shape="round"
@@ -160,7 +162,7 @@ const goAccounts = (): void => {
           :loading="relogging"
           @click="handleRelogin"
         >
-          重新登录
+          去自动登录
         </NutButton>
       </view>
 
@@ -321,10 +323,8 @@ const goAccounts = (): void => {
     align-items: center;
     justify-content: center;
     border-radius: 28rpx;
-    box-shadow: 0 12rpx 24rpx rgba(31, 111, 235, 0.2);
-    color: #fff;
-    font-size: 40rpx;
-    font-weight: 800;
+    overflow: hidden;
+    box-shadow: 0 12rpx 24rpx rgba(10, 16, 28, 0.16);
   }
 
   &__identity {
